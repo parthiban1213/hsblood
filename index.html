@@ -1,0 +1,1587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="theme-color" content="#C8102E"/>
+<title>HSBlood — Donor Registry</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3CradialGradient id='g' cx='40%25' cy='35%25' r='60%25'%3E%3Cstop offset='0%25' stop-color='%23e8294a'/%3E%3Cstop offset='100%25' stop-color='%239B0B22'/%3E%3C/radialGradient%3E%3C/defs%3E%3Cpath d='M16 2 C16 2 4 14 4 20 A12 12 0 0 0 28 20 C28 14 16 2 16 2Z' fill='url(%23g)'/%3E%3Cellipse cx='11' cy='17' rx='3' ry='4.5' fill='rgba(255,255,255,0.22)' transform='rotate(-20 11 17)'/%3E%3Ccircle cx='20' cy='12' r='1.8' fill='rgba(255,255,255,0.15)'/%3E%3C/svg%3E"/>
+<link rel="alternate icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 C16 2 4 14 4 20 A12 12 0 0 0 28 20 C28 14 16 2 16 2Z' fill='%23C8102E'/%3E%3C/svg%3E"/>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<!-- App Styles -->
+<link rel="stylesheet" href="css/main.css"/>
+</head>
+<body>
+
+
+<!-- ════════════════════════════════════════
+     LOGIN SCREEN
+════════════════════════════════════════ -->
+<!-- ═══ GLOBAL TOP PROGRESS BAR ═══ -->
+<div id="api-bar" style="
+  position:fixed;top:0;left:0;width:0%;height:3px;
+  background:linear-gradient(90deg,var(--red-dark),var(--red),#FF6B6B);
+  z-index:9999;transition:width .25s ease,opacity .4s ease;opacity:0;
+  box-shadow:0 0 8px rgba(200,16,46,0.5);pointer-events:none"></div>
+
+<!-- ═══ APP LAUNCH LOADER ═══ -->
+<div id="app-loader" data-testid="app-loader" style="
+  position:fixed;inset:0;background:#FDF5F6;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  z-index:9998;transition:opacity .5s ease">
+
+  <div style="display:flex;flex-direction:column;align-items:center;gap:28px">
+
+    <!-- Glossy heart with pulse rings -->
+    <div style="position:relative;display:flex;align-items:center;justify-content:center;width:220px;height:220px">
+
+      <svg viewBox="0 0 220 220" width="220" height="220" style="position:absolute;top:0;left:0" fill="none">
+        <circle cx="110" cy="110" r="72" stroke="#F5C0C8" style="animation:ldRing1 2s ease-out infinite"/>
+        <circle cx="110" cy="110" r="72" stroke="#F5C0C8" style="animation:ldRing2 2s ease-out .5s infinite"/>
+      </svg>
+
+      <svg viewBox="0 0 200 185" width="186" height="172" fill="none"
+        style="position:relative;z-index:1;transform-origin:center;animation:ldBeat 1.3s cubic-bezier(.4,0,.2,1) infinite">
+        <defs>
+          <radialGradient id="ld-hg" cx="36%" cy="26%" r="70%">
+            <stop offset="0%" stop-color="#FF5068"/>
+            <stop offset="38%" stop-color="#CC0E28"/>
+            <stop offset="100%" stop-color="#780010"/>
+          </radialGradient>
+          <radialGradient id="ld-s1" cx="33%" cy="22%" r="42%">
+            <stop offset="0%" stop-color="rgba(255,255,255,.32)"/>
+            <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+          </radialGradient>
+          <radialGradient id="ld-s2" cx="72%" cy="18%" r="28%">
+            <stop offset="0%" stop-color="rgba(255,255,255,.14)"/>
+            <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+          </radialGradient>
+          <radialGradient id="ld-s3" cx="50%" cy="90%" r="40%">
+            <stop offset="0%" stop-color="rgba(60,0,8,.5)"/>
+            <stop offset="100%" stop-color="rgba(60,0,8,0)"/>
+          </radialGradient>
+        </defs>
+        <path d="M100 175 C100 175 18 128 10 78 C4 44 26 18 52 18 C70 18 86 28 100 46 C114 28 130 18 148 18 C174 18 196 44 190 78 C182 128 100 175 100 175 Z" fill="url(#ld-hg)"/>
+        <path d="M100 175 C100 175 18 128 10 78 C4 44 26 18 52 18 C70 18 86 28 100 46 C114 28 130 18 148 18 C174 18 196 44 190 78 C182 128 100 175 100 175 Z" fill="url(#ld-s1)"/>
+        <path d="M100 175 C100 175 18 128 10 78 C4 44 26 18 52 18 C70 18 86 28 100 46 C114 28 130 18 148 18 C174 18 196 44 190 78 C182 128 100 175 100 175 Z" fill="url(#ld-s2)"/>
+        <path d="M100 175 C100 175 18 128 10 78 C4 44 26 18 52 18 C70 18 86 28 100 46 C114 28 130 18 148 18 C174 18 196 44 190 78 C182 128 100 175 100 175 Z" fill="url(#ld-s3)"/>
+        <ellipse cx="66" cy="52" rx="22" ry="14" fill="rgba(255,255,255,.12)" transform="rotate(-30 66 52)"/>
+        <ellipse cx="60" cy="46" rx="10" ry="7" fill="rgba(255,255,255,.18)" transform="rotate(-30 60 46)"/>
+        <ellipse cx="148" cy="44" rx="10" ry="6" fill="rgba(255,255,255,.08)" transform="rotate(20 148 44)"/>
+        <polyline
+          points="14,90 34,90 42,90 47,60 52,120 57,68 62,90 78,90 86,90 91,60 96,120 101,68 106,90 122,90 130,90 135,60 140,120 145,68 150,90 186,90"
+          stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"
+          style="stroke-dasharray:320;stroke-dashoffset:320;animation:ldEcg 2s linear infinite"/>
+      </svg>
+    </div>
+
+    <!-- Brand -->
+    <div style="text-align:center">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:2rem;font-weight:700;color:#18213A;line-height:1">HS<span style="color:#C8102E">Blood</span></div>
+      <div style="font-family:'DM Sans',sans-serif;font-size:0.78rem;color:#7A4050;margin-top:8px;letter-spacing:.06em">Every drop counts. Saving lives together.</div>
+    </div>
+
+    <!-- Pulse dots -->
+    <div style="display:flex;gap:8px;align-items:center">
+      <div style="width:7px;height:7px;border-radius:50%;background:#C8102E;animation:ldDot 1.2s ease-in-out infinite"></div>
+      <div style="width:7px;height:7px;border-radius:50%;background:#C8102E;animation:ldDot 1.2s ease-in-out .2s infinite"></div>
+      <div style="width:7px;height:7px;border-radius:50%;background:#C8102E;animation:ldDot 1.2s ease-in-out .4s infinite"></div>
+    </div>
+
+  </div>
+</div>
+
+<style>
+@keyframes ldBeat{0%,100%{transform:scale(1)}12%{transform:scale(1.08)}24%{transform:scale(.97)}36%{transform:scale(1.05)}60%{transform:scale(1)}}
+@keyframes ldEcg{0%{stroke-dashoffset:320;opacity:1}75%{stroke-dashoffset:0;opacity:1}90%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes ldRing1{0%{r:72;opacity:.4;stroke-width:2}100%{r:110;opacity:0;stroke-width:.5}}
+@keyframes ldRing2{0%{r:72;opacity:.25;stroke-width:1.5}100%{r:128;opacity:0;stroke-width:.5}}
+@keyframes ldDot{0%,100%{opacity:.25;transform:scale(.75)}50%{opacity:1;transform:scale(1)}}
+</style>
+
+<div id="login-screen" data-testid="login-screen">
+
+  <!-- LEFT PANEL -->
+  <div class="login-left">
+    <div class="login-left-content" id="drop-scene">
+
+      <!-- Animated drop & splatter live at content level -->
+      <div class="blood-drop-anim" id="blood-drop">
+        <svg viewBox="0 0 20 26" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M10 0 C10 0 0 12 0 17 A10 10 0 0 0 20 17 C20 12 10 0 10 0Z" fill="#C8102E"/>
+          <ellipse cx="7" cy="13" rx="2.5" ry="3.5" fill="rgba(255,255,255,0.28)" transform="rotate(-25 7 13)"/>
+          <circle cx="13" cy="10" r="1.2" fill="rgba(255,255,255,0.18)"/>
+        </svg>
+      </div>
+      <div id="splatter-container"></div>
+
+      <div class="login-left-icon" id="drop-icon">🩸</div>
+      <h1><span class="hs-text">HS</span><span class="blood-text" id="blood-text">Blood</span></h1>
+      <p>Donor Registry System</p>
+      <div class="login-left-cards">
+        <div class="login-info-card">
+          <div class="lic-title">🛡️ Be a Real Hero</div>
+          <p>Heroes don’t always wear capes. Sometimes they just roll up their sleeves and donate blood..</p>
+        </div>
+        <div class="login-info-card">
+          <div class="lic-title">🛡️ Drop by Drop</div>
+          <p>Every drop counts. Your donation can make the difference between life and death.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="login-right">
+    <div id="login-form-wrap" class="login-form-wrap">
+      <h2>Welcome back</h2>
+      <p>Sign in to access the donor registry</p>
+
+      <!-- Role tabs -->
+      <div class="login-tabs">
+        <button id="login-tab-user" class="login-tab active" onclick="switchLoginTab('user',this)">👤 HS Employee</button>
+        <button id="login-tab-admin" class="login-tab" onclick="switchLoginTab('admin',this)">🔑 Admin</button>
+      </div>
+
+      <!-- Role description -->
+      <div class="login-role-badge" id="login-role-desc">
+        <div class="role-icon">👁️</div>
+        <p><strong>Smart Access</strong>Access what you need to get things done</p>
+      </div>
+
+      <div class="login-error" id="login-error" data-testid="login-error"></div>
+
+      <div class="login-form-group">
+        <label>Username</label>
+        <div class="login-input-wrap">
+          <span class="input-icon">👤</span>
+          <input type="text" id="login-username" placeholder="Enter your username" autocomplete="username"/>
+        </div>
+      </div>
+      <div class="login-form-group">
+        <label>Password</label>
+        <div class="login-input-wrap">
+          <span class="input-icon">🔒</span>
+          <input type="password" id="login-password" placeholder="Enter your password" autocomplete="current-password"
+            onkeydown="if(event.key==='Enter')doLogin()"/>
+        </div>
+      </div>
+
+      <button class="login-btn" id="login-btn" onclick="doLogin()">Sign In →</button>
+
+      <!-- Forgot Password — visible only on HS Employee tab -->
+      <div id="forgot-password-section" style="text-align:center;margin-top:10px;display:block">
+        <a id="forgot-password-link" href="#" onclick="openForgotPasswordModal();return false;"
+          style="font-size:0.78rem;color:var(--text2);text-decoration:none;font-family:var(--font-ui);transition:color .15s"
+          onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text2)'">
+          🔑 Forgot Password?
+        </a>
+      </div>
+
+      <!-- Sign Up link — visible only on HS Employee tab -->
+      <div id="signup-section" style="display:block">
+        <div class="signup-divider">
+          <hr/><span>New here?</span><hr/>
+        </div>
+        <button id="signup-open-btn" class="signup-btn" onclick="openSignupModal()">✨ Create HS Employee Account</button>
+      </div>
+
+      <!-- Quick-fill credentials hint -->
+      <!-- <div class="login-divider">
+        <hr/><span>Default credentials</span><hr/>
+      </div> -->
+      <!-- <div class="login-creds">
+        <div id="demo-cred-admin" class="login-cred-card" onclick="fillCreds('admin','admin123','admin')">
+          <div class="cc-role">🛡️ Admin</div>
+          <div class="cc-name">admin</div>
+          <div class="cc-pass">admin123</div>
+        </div>
+        <div id="demo-cred-user" class="login-cred-card" onclick="fillCreds('user','user123','user')">
+          <div class="cc-role">👤 User</div>
+          <div class="cc-name">user</div>
+          <div class="cc-pass">user123</div>
+        </div>
+      </div> -->
+    </div>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════════════════
+     MAIN APP
+════════════════════════════════════════ -->
+<div id="app" data-testid="app-root">
+  <!-- Mobile hamburger -->
+  <button class="hamburger" id="hamburger-btn" onclick="openSidebarMobile()" aria-label="Open menu">☰</button>
+
+  <aside class="sidebar" id="sidebar" data-testid="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-row">
+        <div class="logo-icon">🩸</div>
+        <div class="sidebar-title-wrap"><h1>HS<span>Blood</span></h1></div>
+      </div>
+      <div id="sidebar-role-pill" class="sidebar-pill-wrap"></div>
+    </div>
+    <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
+      <span class="toggle-icon">◀</span>
+    </button>
+    <nav>
+      <span class="nav-label"><span class="nav-label-text">Overview</span></span>
+      <button id="nav-dashboard" class="nav-btn active" onclick="showPage('dashboard',this)" title="Dashboard">
+        <span class="icon">📊</span><span class="nav-text"> Dashboard</span>
+      </button>
+      <span class="nav-label"><span class="nav-label-text">Registry</span></span>
+      <button id="nav-donors" class="nav-btn" onclick="showPage('donors',this)" title="Donors">
+        <span class="icon">👤</span><span class="nav-text"> Donors</span>
+      </button>
+      <button class="nav-btn" id="nav-requirements" onclick="showPage('requirements',this)" title="Requirements">
+        <span class="icon">🩸</span><span class="nav-text"> Requirements</span>
+      </button>
+      <button class="nav-btn" id="nav-info" onclick="showPage('info',this)" title="Info Directory">
+        <span class="icon">📍</span><span class="nav-text"> Info Directory</span>
+      </button>
+      <span class="nav-label" id="nav-label-admin" style="display:none"><span class="nav-label-text">Admin</span></span>
+      <button class="nav-btn" id="nav-users" onclick="showPage('users',this)" title="User Management" style="display:none">
+        <span class="icon">👥</span><span class="nav-text"> User Management</span>
+      </button>
+      <button class="nav-btn" id="nav-export" onclick="openExportModal()" title="Export Data" style="display:none">
+        <span class="icon">📤</span><span class="nav-text"> Export Data</span>
+      </button>
+      <span class="nav-label"><span class="nav-label-text">Actions</span></span>
+      <button id="nav-register-donor" class="nav-btn" onclick="openDonorModal()" title="Register Donor">
+        <span class="icon">➕</span><span class="nav-text"> Register Donor</span>
+      </button>
+      <button class="nav-btn" id="nav-add-req" onclick="openReqModal()" style="display:none" title="Add Requirement">
+        <span class="icon">📋</span><span class="nav-text"> Add Requirement</span>
+      </button>
+      <span class="nav-label" id="nav-label-account"><span class="nav-label-text">Account</span></span>
+      <button class="nav-btn" id="nav-security" onclick="showPage('security',this)" title="Security">
+        <span class="icon">🔐</span><span class="nav-text"> Security</span>
+      </button>
+      <button class="nav-btn" id="nav-profile" onclick="showPage('profile',this)" title="My Profile">
+        <span class="icon">👤</span><span class="nav-text"> My Profile</span>
+      </button>
+    </nav>
+    <div class="sidebar-stats">
+      <h4 class="nav-text">Quick Stats</h4>
+      <div class="stat-row"><span class="nav-text">Total Donors</span><strong id="stat-total">—</strong></div>
+      <div class="stat-row"><span class="nav-text">Available</span><strong id="stat-available">—</strong></div>
+      <div class="stat-row"><span class="nav-text">Blood Types</span><strong>8</strong></div>
+    </div>
+    <div class="sidebar-bottom">
+      <div class="user-info-bar">
+        <div class="user-avatar" id="sidebar-avatar" onclick="showPage('profile',document.getElementById('nav-profile'))" title="View my profile" style="cursor:pointer">?</div>
+        <div class="user-info-text" onclick="showPage('profile',document.getElementById('nav-profile'))" style="cursor:pointer">
+          <div class="uname" id="sidebar-username">—</div>
+          <div class="urole" id="sidebar-userrole">—</div>
+        </div>
+        <button id="logout-btn" class="logout-btn" onclick="doLogout()" title="Logout">⏻</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Mobile overlay -->
+  <div class="sidebar-overlay" id="sidebar-overlay" data-testid="sidebar-overlay" onclick="closeSidebarMobile()"></div>
+
+  <main class="main">
+
+    <!-- DASHBOARD -->
+    <div id="page-dashboard" class="page">
+      <div class="page-header">
+        <h2>Dashboard <span>Overview</span></h2>
+        <p id="dash-welcome">Welcome back!</p>
+      </div>
+      <div id="dash-stats-row" class="dash-stats">
+        <div id="dash-stat-total-donors" class="dash-stat highlight">
+          <div class="label">Total Donors</div>
+          <div class="value" id="d-total">—</div>
+          <div class="sub">Registered in system</div>
+        </div>
+        <div id="dash-stat-available-now" class="dash-stat">
+          <div class="label">Available Now</div>
+          <div class="value" id="d-available">—</div>
+          <div class="sub">Ready to donate</div>
+        </div>
+        <div id="dash-stat-blood-types" class="dash-stat">
+          <div class="label">Blood Types</div>
+          <div class="value">8</div>
+          <div class="sub">ABO + Rh system</div>
+        </div>
+        <div class="dash-stat" style="cursor:pointer" id="dash-stat-requirements" onclick="showPage('requirements',document.getElementById('nav-requirements'))">
+          <div class="label" style="color:#DC2626">Open Requests</div>
+          <div class="value" id="d-open-reqs" style="color:#DC2626">—</div>
+          <div class="sub">Blood requirements</div>
+        </div>
+      </div>
+
+      <!-- PEOPLE BENEFITTED BANNER -->
+      <div data-testid="benefitted-banner" id="benefitted-banner" style="background:linear-gradient(135deg,#9B0B22 0%,#C8102E 60%,#e8294a 100%);border-radius:var(--radius);padding:22px 28px;margin-bottom:22px;display:flex;align-items:center;justify-content:space-between;gap:20px;box-shadow:0 8px 32px rgba(200,16,46,0.28);animation:fadeUp .4s ease both;animation-delay:.18s;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:18px">
+          <div style="width:60px;height:60px;border-radius:16px;flex-shrink:0;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;font-size:2rem;box-shadow:0 4px 16px rgba(0,0,0,0.18);">🫀</div>
+          <div>
+            <div style="font-family:var(--font-ui);font-size:0.72rem;font-weight:800;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.75);margin-bottom:4px">Lives Impacted through HSBlood</div>
+            <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+              <span data-testid="d-benefitted" style="font-family:var(--font-display);font-size:2.8rem;font-weight:700;color:#fff;line-height:1" id="d-benefitted">—</span>
+              <span style="font-size:0.82rem;color:rgba(255,255,255,0.8);font-family:var(--font-ui)">people benefitted</span>
+            </div>
+            <div style="font-size:0.75rem;color:rgba(255,255,255,0.65);margin-top:4px;font-family:var(--font-ui)">
+              Calculated from <span id="d-fulfilled-count" style="font-weight:700;color:rgba(255,255,255,0.9)">—</span> fulfilled blood requirement(s) &middot; total units delivered
+            </div>
+          </div>
+        </div>
+        <div style="background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.2);border-radius:12px;padding:14px 20px;text-align:center;min-width:120px;flex-shrink:0;">
+          <div style="font-family:var(--font-display);font-size:2rem;font-weight:700;color:#fff;line-height:1" id="d-benefitted-2">—</div>
+          <div style="font-size:0.68rem;font-family:var(--font-ui);font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.7);margin-top:4px">Blood Units</div>
+          <div style="font-size:0.68rem;color:rgba(255,255,255,0.55);font-family:var(--font-ui);margin-top:2px">Delivered</div>
+        </div>
+      </div>
+      <div id="dash-2col-grid" class="dash-2col-grid">
+        <div class="card">
+          <div class="card-title">Donors by Blood Type</div>
+          <div class="bt-chart" id="bt-chart" data-testid="bt-chart"><div class="spinner"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Compatibility Reference</div>
+          <div style="overflow-x:auto">
+            <table style="font-size:0.75rem">
+              <thead><tr><th>Type</th><th>Donates To</th><th>Receives From</th></tr></thead>
+              <tbody>
+                <tr><td><span class="blood-badge">A+</span></td><td>A+, AB+</td><td>A+, A−, O+, O−</td></tr>
+                <tr><td><span class="blood-badge">A-</span></td><td>A+, A−, AB+, AB−</td><td>A−, O−</td></tr>
+                <tr><td><span class="blood-badge">B+</span></td><td>B+, AB+</td><td>B+, B−, O+, O−</td></tr>
+                <tr><td><span class="blood-badge">B-</span></td><td>B+, B−, AB+, AB−</td><td>B−, O−</td></tr>
+                <tr><td><span class="blood-badge">AB+</span></td><td>AB+ only</td><td>All types</td></tr>
+                <tr><td><span class="blood-badge">AB-</span></td><td>AB+, AB−</td><td>A−, B−, AB−, O−</td></tr>
+                <tr><td><span class="blood-badge">O+</span></td><td>A+, B+, O+, AB+</td><td>O+, O−</td></tr>
+                <tr><td><span class="blood-badge">O-</span></td><td>All types</td><td>O− only</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:15px">
+        <div class="card-title">Recent Donors</div>
+        <div id="recent-donors-table" data-testid="recent-donors-table"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- DONORS -->
+    <div id="page-donors" class="page" style="display:none">
+      <div class="page-header-row page-header">
+        <div>
+          <h2>Donor <span>Registry</span></h2>
+          <p>Browse, search and manage registered blood donors</p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button id="btn-open-donor-modal" class="btn btn-primary" onclick="openDonorModal()">➕ Register Donor</button>
+          <button class="btn btn-outline" id="bulk-upload-btn" onclick="openBulkUploadModal()" style="display:none">📥 Bulk Upload</button>
+        </div>
+      </div>
+      <div class="filter-bar">
+        <div class="search-bar">
+          <span style="color:var(--text3)">🔍</span>
+          <input type="text" id="donor-search" placeholder="Search by name or address…" oninput="filterDonors()"/>
+        </div>
+        <select class="filter-select" id="filter-blood" onchange="filterDonors()">
+          <option value="">All Blood Types</option>
+          <option>A+</option><option>A-</option><option>B+</option><option>B-</option>
+          <option>AB+</option><option>AB-</option><option>O+</option><option>O-</option>
+        </select>
+        <select class="filter-select" id="filter-status" onchange="filterDonors()">
+          <option value="">All Status</option>
+          <option value="true">Available</option>
+          <option value="false">Unavailable</option>
+        </select>
+        <div class="view-toggle">
+          <button id="donor-view-table" class="active" onclick="setView('table',this)" title="Table">☰</button>
+          <button id="donor-view-cards" onclick="setView('cards',this)" title="Cards">⊞</button>
+        </div>
+      </div>
+      <div class="card">
+        <div id="donors-view" data-testid="donors-view"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- BLOOD TYPES -->
+    <!-- BLOOD REQUIREMENTS -->
+    <div id="page-requirements" class="page" style="display:none">
+      <div class="page-header-row page-header">
+        <div>
+          <h2>Blood <span>Requirements</span></h2>
+          <p>Track and manage urgent blood requirement requests</p>
+        </div>
+        <div id="req-admin-btn"></div>
+      </div>
+      <div class="filter-bar">
+        <div class="search-bar">
+          <span style="color:var(--text3)">🔍</span>
+          <input type="text" id="req-search" placeholder="Search by patient, hospital…" oninput="filterRequirements()"/>
+        </div>
+        <select class="filter-select" id="req-filter-blood" onchange="filterRequirements()">
+          <option value="">All Blood Types</option>
+          <option>A+</option><option>A-</option><option>B+</option><option>B-</option>
+          <option>AB+</option><option>AB-</option><option>O+</option><option>O-</option>
+        </select>
+        <select class="filter-select" id="req-filter-status" onchange="filterRequirements()">
+          <option value="">All Status</option>
+          <option value="Open">Open</option>
+          <option value="Fulfilled">Fulfilled</option>
+          <option value="Cancelled">Cancelled</option>
+        </select>
+        <select class="filter-select" id="req-filter-urgency" onchange="filterRequirements()">
+          <option value="">All Urgency</option>
+          <option value="Critical">🔴 Critical</option>
+          <option value="High">🟠 High</option>
+          <option value="Medium">🟡 Medium</option>
+          <option value="Low">🟢 Low</option>
+        </select>
+      </div>
+      <div id="req-summary-stats" data-testid="req-summary-stats" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:15px"></div>
+      <div class="card">
+        <div id="req-view" data-testid="req-view"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- INFO DIRECTORY -->
+    <div id="page-info" class="page" style="display:none">
+      <div class="page-header-row page-header">
+        <div>
+          <h2>Info <span>Directory</span></h2>
+          <p>Ambulance services and hospitals for quick reference</p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <div id="info-admin-btn"></div>
+          <!-- List / Map toggle -->
+          <div class="view-toggle">
+            <button class="active" id="info-toggle-list" onclick="setInfoView('list')" title="List view">☰ List</button>
+            <button id="info-toggle-map" onclick="setInfoView('map')" title="Map view">🗺 Map</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filters — shared across both views -->
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+        <button class="info-tab active" id="info-tab-all"       onclick="setInfoTab('all',this)">All</button>
+        <button class="info-tab"        id="info-tab-hospital"  onclick="setInfoTab('Hospital',this)">🏥 Hospital</button>
+        <button class="info-tab"        id="info-tab-ambulance" onclick="setInfoTab('Ambulance',this)">🚑 Ambulance</button>
+        <button class="info-tab"        id="info-tab-bloodbank" onclick="setInfoTab('Blood Bank',this)">🩸 Blood Bank</button>
+        <div class="search-bar" style="margin-left:auto">
+          <span style="color:var(--text3)">🔍</span>
+          <input type="text" id="info-search" placeholder="Search name, area, phone…" oninput="filterInfo()"/>
+        </div>
+      </div>
+
+      <!-- LIST VIEW -->
+      <div id="info-list-view">
+        <div id="info-grid" data-testid="info-grid" class="info-grid-layout">
+          <div class="spinner"></div>
+        </div>
+      </div>
+
+      <!-- MAP VIEW (Leaflet + OpenStreetMap) -->
+      <div id="info-map-view" data-testid="info-map-view" style="display:none">
+        <div class="info-map-layout">
+          <!-- Sidebar list -->
+          <div class="info-map-sidebar-col" id="info-map-sidebar" data-testid="info-map-sidebar"></div>
+          <!-- Leaflet map canvas -->
+          <div class="info-map-canvas-col">
+            <div id="info-map" style="width:100%;height:100%"></div>
+          </div>
+        </div>
+        <!-- Legend -->
+        <div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;font-family:var(--font-ui);color:var(--text2)">
+            <span style="width:14px;height:14px;border-radius:50%;background:#C8102E;display:inline-block;flex-shrink:0;border:2px solid #fff;box-shadow:0 0 0 1.5px #C8102E"></span> Hospital
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;font-family:var(--font-ui);color:var(--text2)">
+            <span style="width:14px;height:14px;border-radius:50%;background:#EA580C;display:inline-block;flex-shrink:0;border:2px solid #fff;box-shadow:0 0 0 1.5px #EA580C"></span> Ambulance
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;font-family:var(--font-ui);color:var(--text2)">
+            <span style="width:14px;height:14px;border-radius:50%;background:#BE123C;display:inline-block;flex-shrink:0;border:2px solid #fff;box-shadow:0 0 0 1.5px #BE123C"></span> Blood Bank
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;font-family:var(--font-ui);color:var(--text2)">
+            <span style="width:14px;height:14px;border-radius:50%;background:#94A3B8;display:inline-block;flex-shrink:0;border:2px solid #fff;box-shadow:0 0 0 1.5px #94A3B8"></span> No location set
+          </div>
+          <span style="margin-left:auto;font-size:0.72rem;color:var(--text3);font-family:var(--font-ui)">© <a href="https://www.openstreetmap.org/copyright" target="_blank" style="color:inherit">OpenStreetMap</a> contributors</span>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- SECURITY PAGE -->
+    <div id="page-security" class="page" style="display:none">
+      <div class="page-header">
+        <h2>Security <span>Settings</span></h2>
+        <p>Manage your account password and email address</p>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:24px;max-width:860px">
+
+        <!-- Change Password Card -->
+        <div class="card" style="padding:28px">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+            <div style="width:42px;height:42px;border-radius:12px;background:var(--red-light);display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0">🔒</div>
+            <div>
+              <div style="font-family:var(--font-ui);font-weight:700;color:var(--text);font-size:0.95rem">Change Password</div>
+              <div style="font-size:0.75rem;color:var(--text2);margin-top:2px">Update your login password</div>
+            </div>
+          </div>
+
+          <div class="login-error" id="cp-error" data-testid="cp-error"></div>
+          <div class="login-error" id="cp-success" data-testid="cp-success" style="background:#EDFBF3;border-color:#BBF7D0;color:#15803D;display:none"></div>
+
+          <div class="form-group" style="margin-bottom:14px">
+            <label style="font-size:0.8rem;font-weight:600;color:var(--text2);margin-bottom:5px;display:block">Current Password *</label>
+            <div class="login-input-wrap">
+              <span class="input-icon">🔓</span>
+              <input type="password" id="cp-current" placeholder="Enter current password"
+                style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;transition:border-color .17s,box-shadow .17s"
+                autocomplete="current-password"/>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:14px">
+            <label style="font-size:0.8rem;font-weight:600;color:var(--text2);margin-bottom:5px;display:block">New Password *</label>
+            <div class="login-input-wrap">
+              <span class="input-icon">🔒</span>
+              <input type="password" id="cp-new" placeholder="At least 6 characters"
+                style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;transition:border-color .17s,box-shadow .17s"
+                autocomplete="new-password"/>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:20px">
+            <label style="font-size:0.8rem;font-weight:600;color:var(--text2);margin-bottom:5px;display:block">Confirm New Password *</label>
+            <div class="login-input-wrap">
+              <span class="input-icon">🔒</span>
+              <input type="password" id="cp-confirm" placeholder="Re-enter new password"
+                style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;transition:border-color .17s,box-shadow .17s"
+                autocomplete="new-password"
+                onkeydown="if(event.key==='Enter')doChangePassword()"/>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="cp-btn" onclick="doChangePassword()" style="width:100%">🔒 Update Password</button>
+        </div>
+
+
+      </div>
+    </div>
+
+    <!-- ═══ USER MANAGEMENT PAGE ═══ -->
+    <div id="page-users" data-testid="page-users" aria-label="User Management page" class="page" style="display:none">
+      <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div>
+          <h2>User <span>Management</span></h2>
+          <p>Add, edit, and manage HS system accounts</p>
+        </div>
+        <button id="btn-open-user-modal" class="btn btn-primary" onclick="openUserModal()">➕ Add User</button>
+      </div>
+
+      <!-- Summary bar -->
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:22px">
+        <div class="card" style="padding:16px 22px;display:flex;align-items:center;gap:12px;flex:1;min-width:140px">
+          <span style="font-size:1.6rem">👥</span>
+          <div><div id="um-total" style="font-family:var(--font-ui);font-size:1.5rem;font-weight:800;color:var(--text)">—</div><div style="font-size:0.75rem;color:var(--text2)">Total Users</div></div>
+        </div>
+        <div class="card" style="padding:16px 22px;display:flex;align-items:center;gap:12px;flex:1;min-width:140px">
+          <span style="font-size:1.6rem">🛡️</span>
+          <div><div id="um-admins" style="font-family:var(--font-ui);font-size:1.5rem;font-weight:800;color:var(--red)">—</div><div style="font-size:0.75rem;color:var(--text2)">Admins</div></div>
+        </div>
+        <div class="card" style="padding:16px 22px;display:flex;align-items:center;gap:12px;flex:1;min-width:140px">
+          <span style="font-size:1.6rem">👤</span>
+          <div><div id="um-employees" style="font-family:var(--font-ui);font-size:1.5rem;font-weight:800;color:var(--text)">—</div><div style="font-size:0.75rem;color:var(--text2)">HS Employees</div></div>
+        </div>
+      </div>
+
+      <!-- Search bar -->
+      <div class="card" style="padding:14px 18px;margin-bottom:18px;display:flex;align-items:center;gap:10px">
+        <span style="color:var(--text3);font-size:1rem">🔍</span>
+        <input id="um-search" data-testid="user-search-input" aria-label="Search users" type="text" placeholder="Search by username or email…"
+          style="flex:1;border:none;outline:none;background:transparent;font-family:var(--font-body);font-size:0.9rem;color:var(--text)"
+          oninput="renderUsersTable()"/>
+      </div>
+
+      <!-- Table -->
+      <div class="card" style="padding:0;overflow:hidden">
+        <div id="um-table-wrap" data-testid="users-table-wrap" style="overflow-x:auto">
+          <div class="spinner" style="margin:32px auto"></div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- PROFILE PAGE -->
+    <div id="page-profile" class="page" style="display:none">
+      <div class="page-header-row page-header">
+        <div>
+          <h2>My <span>Profile</span></h2>
+          <p>View and update your account information</p>
+        </div>
+      </div>
+
+      <div class="profile-card">
+        <!-- Avatar + name header -->
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:28px;padding-bottom:22px;border-bottom:1px solid var(--border2)">
+          <div class="profile-avatar-lg" id="profile-avatar-lg">?</div>
+          <div>
+            <div id="profile-display-name" style="font-family:var(--font-display);font-size:1.4rem;font-weight:700;color:var(--text)">—</div>
+            <div id="profile-display-role" style="font-size:0.8rem;color:var(--text2);margin-top:3px;font-family:var(--font-ui)">—</div>
+            <div id="profile-display-bloodtype" style="margin-top:6px"></div>
+          </div>
+        </div>
+
+        <!-- Error / success -->
+        <div id="profile-error" style="display:none;background:#FEF2F2;border:1.5px solid #FECACA;border-radius:10px;padding:11px 14px;font-size:0.82rem;color:#DC2626;font-family:var(--font-ui);margin-bottom:14px"></div>
+        <div id="profile-success" style="display:none;background:#EDFBF4;border:1.5px solid #BBF7D0;border-radius:10px;padding:11px 14px;font-size:0.82rem;color:#15803D;font-family:var(--font-ui);margin-bottom:14px"></div>
+
+        <!-- Form fields -->
+        <div class="profile-field-row">
+          <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="profile-username" data-testid="profile-username"
+              placeholder="Your username"
+              style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+          </div>
+          <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" id="profile-email" data-testid="profile-email"
+              placeholder="you@example.com"
+              style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:14px">
+          <label>Blood Type <span style="color:var(--text3);font-weight:400">(used for blood requirement notifications)</span></label>
+          <select id="profile-bloodtype" data-testid="profile-bloodtype"
+            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;cursor:pointer">
+            <option value="">— Not specified —</option>
+            <option value="A+">A+</option><option value="A-">A-</option>
+            <option value="B+">B+</option><option value="B-">B-</option>
+            <option value="AB+">AB+</option><option value="AB-">AB-</option>
+            <option value="O+">O+</option><option value="O-">O-</option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center;padding-top:6px">
+          <button id="profile-save-btn" data-testid="profile-save-btn" class="btn btn-primary" onclick="saveProfile()">💾 Save Changes</button>
+          <button class="btn btn-outline" onclick="loadProfile()">↺ Reset</button>
+          <a href="#" onclick="showPage('security',document.getElementById('nav-security'));return false;"
+            style="margin-left:auto;font-size:0.78rem;color:var(--text3);font-family:var(--font-ui);text-decoration:none">
+            🔐 Change Password →
+          </a>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ═══ BLOOD REQUIREMENT MODAL ═══ -->
+<div class="modal-overlay" id="req-modal">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-header">
+      <h3 id="req-modal-title">New Blood Requirement</h3>
+      <button id="req-modal-close-btn" class="modal-close" onclick="closeModal('req-modal')">✕</button>
+    </div>
+    <form id="req-form" data-testid="req-form" onsubmit="saveRequirement(event)">
+      <input type="hidden" id="req-id"/>
+      <div id="req-dup-warn" style="display:none;background:#FFF7ED;border:1.5px solid #FED7AA;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:0.82rem;color:#92400E;font-family:var(--font-ui)">
+        <strong>⚠️ Duplicate Detected</strong><br/><span id="req-dup-msg"></span>
+      </div>
+      <div id="req-section-patient" class="section-divider">Patient & Hospital</div>
+      <div class="form-grid">
+        <div class="form-group"><label>Patient Name *</label><input type="text" id="req-patientName" required placeholder="e.g. Ravi Kumar"/></div>
+        <div class="form-group"><label>Hospital / Centre *</label><input type="text" id="req-hospital" required placeholder="e.g. PSG Hospital"/></div>
+        <div class="form-group"><label>Location</label><input type="text" id="req-location" placeholder="e.g. Coimbatore, Tamil Nadu"/></div>
+        <div class="form-group"><label>Contact Person *</label><input type="text" id="req-contactPerson" required placeholder="Name of coordinator"/></div>
+        <div class="form-group"><label>Contact Phone *</label><input type="tel" id="req-contactPhone" required placeholder="+91 98765 43210"/></div>
+      </div>
+      <div id="req-section-blood" class="section-divider">Blood Details</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Blood Type Required *</label>
+          <select id="req-bloodType" required>
+            <option value="">Select blood type</option>
+            <option>A+</option><option>A-</option><option>B+</option><option>B-</option>
+            <option>AB+</option><option>AB-</option><option>O+</option><option>O-</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Units Required *</label><input type="number" id="req-units" required min="1" placeholder="e.g. 2"/></div>
+        <div class="form-group">
+          <label>Urgency Level *</label>
+          <select id="req-urgency" required>
+            <option value="">Select urgency</option>
+            <option value="Critical">🔴 Critical — Immediate</option>
+            <option value="High">🟠 High — Within 24hrs</option>
+            <option value="Medium" selected>🟡 Medium — Within 3 days</option>
+            <option value="Low">🟢 Low — Within a week</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Required By Date</label><input type="date" id="req-requiredBy"/></div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="req-status">
+            <option value="Open">Open</option>
+            <option value="Fulfilled">Fulfilled</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="form-group full"><label>Additional Notes</label><textarea id="req-notes" placeholder="Any special instructions or context…"></textarea></div>
+      </div>
+    </form>
+    <div class="modal-footer">
+      <button id="req-modal-cancel-btn" class="btn btn-outline" onclick="closeModal('req-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveRequirement(event)" id="save-req-btn">💾 Save Requirement</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ REQUIREMENT DETAIL MODAL ═══ -->
+<div class="modal-overlay" id="req-detail-modal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <h3>Requirement Details</h3>
+      <button id="req-detail-modal-close-btn" class="modal-close" onclick="closeModal('req-detail-modal')">✕</button>
+    </div>
+    <div id="req-detail-content" data-testid="req-detail-content"></div>
+  </div>
+</div>
+
+
+<!-- ═══ BULK REQUIREMENT UPLOAD MODAL ═══ -->
+<div class="modal-overlay" id="bulk-req-modal">
+  <div class="modal" style="max-width:700px;width:95%">
+    <div class="modal-header">
+      <h3>📥 Bulk Blood Requirement Upload</h3>
+      <button id="bulk-req-modal-close-btn" class="modal-close" onclick="closeModal('bulk-req-modal')">✕</button>
+    </div>
+
+    <div id="br-step-1">
+      <div style="background:var(--red-light);border:1px solid rgba(200,16,46,0.15);border-radius:10px;padding:16px;margin-bottom:18px">
+        <p style="font-family:var(--font-ui);font-size:0.78rem;font-weight:700;color:var(--red);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.07em">📋 Required Excel Columns</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 20px">
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>patientName</strong> — required</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>hospital</strong> — required</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>contactPerson</strong> — required</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>contactPhone</strong> — required</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>bloodType</strong> — A+, B-, O+, etc.</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>unitsRequired</strong> — number</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>urgency</strong> — Critical/High/Medium/Low</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>requiredBy</strong> — optional date</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>location</strong> — optional</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>notes</strong> — optional</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>status</strong> — Open/Fulfilled/Cancelled</p>
+        </div>
+      </div>
+      <div style="margin-bottom:16px">
+        <button id="br-download-template-btn" class="btn btn-outline" onclick="downloadReqTemplate()" style="font-size:0.8rem">⬇️ Download Template</button>
+      </div>
+      <div id="br-drop-zone" data-testid="bulk-req-drop-zone"
+        style="border:2px dashed var(--border);border-radius:12px;padding:40px 24px;text-align:center;cursor:pointer;transition:all .2s;background:var(--bg3)"
+        onclick="document.getElementById('br-file-input').click()"
+        ondragover="brDragOver(event)"
+        ondragleave="brDragLeave(event)"
+        ondrop="brDrop(event)">
+        <div style="font-size:2.2rem;margin-bottom:10px">🩸</div>
+        <p style="font-family:var(--font-ui);font-weight:700;color:var(--text);font-size:0.9rem">Drop your Excel file here</p>
+        <p style="font-size:0.76rem;color:var(--text3);margin-top:4px">or click to browse — .xlsx / .xls files only</p>
+        <input type="file" id="br-file-input" accept=".xlsx,.xls" style="display:none" onchange="brFileSelected(event)"/>
+      </div>
+      <p id="br-file-name" style="font-size:0.78rem;color:var(--red);margin-top:8px;font-family:var(--font-ui);font-weight:700;min-height:18px"></p>
+    </div>
+
+    <div id="br-step-2" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <button id="br-back-btn" class="btn btn-outline" onclick="brReset()" style="font-size:0.78rem;padding:6px 14px">← Back</button>
+        <p id="br-preview-summary" style="font-size:0.82rem;color:var(--text2);font-family:var(--font-ui)"></p>
+      </div>
+      <div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:10px">
+        <table style="width:100%;border-collapse:collapse;font-size:0.75rem">
+          <thead id="br-preview-head" data-testid="bulk-req-preview-head" style="background:var(--bg3);position:sticky;top:0"></thead>
+          <tbody id="br-preview-body"></tbody>
+        </table>
+      </div>
+      <p style="font-size:0.73rem;color:var(--text3);margin-top:8px">⚠️ Rows with missing required fields or duplicate open requirements will be skipped.</p>
+    </div>
+
+    <div id="br-step-3" style="display:none">
+      <div id="br-result-box" style="border-radius:10px;padding:20px;margin-bottom:16px"></div>
+      <div id="br-error-table-wrap" style="max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;display:none">
+        <table style="width:100%;border-collapse:collapse;font-size:0.75rem">
+          <thead style="background:var(--bg3)">
+            <tr>
+              <th style="padding:8px 12px;text-align:left;font-family:var(--font-ui)">Row</th>
+              <th style="padding:8px 12px;text-align:left;font-family:var(--font-ui)">Patient</th>
+              <th style="padding:8px 12px;text-align:left;font-family:var(--font-ui)">Reason Skipped</th>
+            </tr>
+          </thead>
+          <tbody id="br-error-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('bulk-req-modal')" id="br-cancel-btn">Cancel</button>
+      <button class="btn btn-primary" id="br-confirm-btn" onclick="brConfirmUpload()" style="display:none">🚀 Upload Requirements</button>
+      <button class="btn btn-primary" id="br-done-btn" onclick="closeModal('bulk-req-modal');loadRequirements()" style="display:none">✅ Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DONOR MODAL ═══ -->
+<div class="modal-overlay" id="donor-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="donor-modal-title">Register Donor</h3>
+      <button id="donor-modal-close-btn" class="modal-close" onclick="closeModal('donor-modal')">✕</button>
+    </div>
+    <form id="donor-form" data-testid="donor-form" onsubmit="saveDonor(event)">
+      <input type="hidden" id="donor-id"/>
+      <div id="donor-dup-warn" style="display:none;background:#FFF7ED;border:1.5px solid #FED7AA;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:0.82rem;color:#92400E;font-family:var(--font-ui)">
+        <strong>⚠️ Duplicate Detected</strong><br/><span id="donor-dup-msg"></span>
+      </div>
+      <div id="donor-section-personal" class="section-divider">Personal Information</div>
+      <div class="form-grid">
+        <div class="form-group"><label>First Name *</label><input type="text" id="d-firstName" required placeholder="e.g. Arjun"/></div>
+        <div class="form-group"><label>Last Name *</label><input type="text" id="d-lastName" required placeholder="e.g. Kumar"/></div>
+        <div class="form-group">
+          <label>Gender *</label>
+          <select id="d-gender" required>
+            <option value="">Select gender</option>
+            <option>Male</option><option>Female</option><option>Other</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Date of Birth *</label><input type="date" id="d-dob" required/></div>
+      </div>
+      <div id="donor-section-contact" class="section-divider">Contact Details</div>
+      <div class="form-grid">
+        <div class="form-group"><label>Phone Number *</label><input type="tel" id="d-phone" required placeholder="+91 98765 43210"/></div>
+        <div class="form-group"><label>Email Address *</label><input type="email" id="d-email" required placeholder="arjun@email.com"/></div>
+        <div class="form-group full"><label>Address</label><input type="text" id="d-address" placeholder="Street, City, State, Country"/></div>
+      </div>
+      <div id="donor-section-donation" class="section-divider">Donation Details</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Blood Type *</label>
+          <select id="d-bloodType" required>
+            <option value="">Select blood type</option>
+            <option>A+</option><option>A-</option><option>B+</option><option>B-</option>
+            <option>AB+</option><option>AB-</option><option>O+</option><option>O-</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Last Donation Date</label><input type="date" id="d-lastDonation"/></div>
+        <div class="form-group full">
+          <label>Availability Status *</label>
+          <div style="display:flex;gap:10px;margin-top:2px">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:10px 16px;border-radius:9px;border:1.5px solid #DDE2EF;background:#F7F9FC;flex:1;font-size:0.88rem;color:#18213A;text-transform:none;letter-spacing:0;font-weight:400">
+              <input type="radio" name="d-available" id="d-available-true" value="true" style="width:16px;height:16px;flex-shrink:0"/>
+              ✅ Available — ready to donate
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:10px 16px;border-radius:9px;border:1.5px solid #DDE2EF;background:#F7F9FC;flex:1;font-size:0.88rem;color:#18213A;text-transform:none;letter-spacing:0;font-weight:400">
+              <input type="radio" name="d-available" id="d-available-false" value="false" style="width:16px;height:16px;flex-shrink:0"/>
+              ❌ Unavailable — not currently eligible
+            </label>
+          </div>
+        </div>
+      </div>
+    </form>
+    <div class="modal-footer">
+      <button id="donor-modal-cancel-btn" class="btn btn-outline" onclick="closeModal('donor-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveDonor(event)" id="save-donor-btn">💾 Save Donor</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ BULK UPLOAD MODAL ═══ -->
+<!-- ── USER MODAL (add / edit) ── -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h3 id="user-modal-title">Add User</h3>
+      <button id="user-modal-close-btn" class="modal-close" onclick="closeModal('user-modal')">✕</button>
+    </div>
+
+    <div class="login-error" id="um-error" data-testid="user-modal-error" style="margin-bottom:12px"></div>
+
+    <input type="hidden" id="um-id"/>
+
+    <div style="display:grid;gap:14px">
+      <div>
+        <label style="font-size:0.8rem;font-weight:600;color:var(--text2);display:block;margin-bottom:5px">Username *</label>
+        <input id="um-username" type="text" placeholder="e.g. jsmith"
+          style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+      </div>
+      <div>
+        <label style="font-size:0.8rem;font-weight:600;color:var(--text2);display:block;margin-bottom:5px">Email</label>
+        <input id="um-email" type="email" placeholder="e.g. jsmith@example.com"
+          style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+      </div>
+      <div>
+        <label style="font-size:0.8rem;font-weight:600;color:var(--text2);display:block;margin-bottom:5px">Role *</label>
+        <select id="um-role"
+          style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;cursor:pointer">
+          <option value="user">👤 HS Employee (user)</option>
+          <option value="admin">🛡️ Admin</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:0.8rem;font-weight:600;color:var(--text2);display:block;margin-bottom:5px">Blood Type <span style="font-weight:400;color:var(--text3)">(for notifications)</span></label>
+        <select id="um-bloodtype" data-testid="um-bloodtype"
+          style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;cursor:pointer">
+          <option value="">— Not specified —</option>
+          <option value="A+">A+</option><option value="A-">A-</option>
+          <option value="B+">B+</option><option value="B-">B-</option>
+          <option value="AB+">AB+</option><option value="AB-">AB-</option>
+          <option value="O+">O+</option><option value="O-">O-</option>
+        </select>
+        <p style="font-size:0.73rem;color:var(--text3);margin-top:4px">HS Employees receive notifications only for their blood type. Admins receive all.</p>
+      </div>
+      <div id="um-password-wrap">
+        <label style="font-size:0.8rem;font-weight:600;color:var(--text2);display:block;margin-bottom:5px" id="um-password-label">Password *</label>
+        <input id="um-password" type="password" placeholder="At least 6 characters"
+          style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+        <p id="um-password-hint" style="font-size:0.75rem;color:var(--text3);margin-top:4px;display:none">Leave blank to keep the current password.</p>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button id="user-modal-cancel-btn" class="btn btn-outline" onclick="closeModal('user-modal')">Cancel</button>
+      <button class="btn btn-primary" id="um-save-btn" onclick="saveUser()">💾 Save User</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── DELETE CONFIRM MODAL ── -->
+<div class="modal-overlay" id="delete-confirm-modal" data-testid="delete-confirm-modal">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h3 style="display:flex;align-items:center;gap:10px">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:var(--red-light);color:var(--red);font-size:1rem;flex-shrink:0">🗑</span>
+        <span id="delete-modal-title">Confirm Delete</span>
+      </h3>
+      <button id="delete-modal-close-btn" class="modal-close" onclick="cancelDelete()">✕</button>
+    </div>
+    <p id="delete-modal-body" style="color:var(--text2);font-size:0.92rem;line-height:1.6;padding:4px 0 8px"></p>
+    <div class="modal-footer">
+      <button id="delete-modal-cancel-btn" class="btn btn-outline" onclick="cancelDelete()">Cancel</button>
+      <button class="btn btn-danger" id="delete-modal-confirm-btn" onclick="confirmDelete()">🗑 Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="bulk-modal">
+  <div class="modal" style="max-width:700px;width:95%">
+    <div class="modal-header">
+      <h3>📥 Bulk Donor Upload</h3>
+      <button id="bulk-donor-modal-close-btn" class="modal-close" onclick="closeModal('bulk-modal')">✕</button>
+    </div>
+
+    <!-- Step 1: Instructions & file pick -->
+    <div id="bulk-step-1">
+      <div style="background:var(--red-light);border:1px solid rgba(200,16,46,0.15);border-radius:10px;padding:16px;margin-bottom:18px">
+        <p style="font-family:var(--font-ui);font-size:0.78rem;font-weight:700;color:var(--red);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.07em">📋 Required Excel Columns</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 20px">
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>firstName</strong> — required</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>lastName</strong> — required</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>email</strong> — required, unique</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>phone</strong> — required</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>dateOfBirth</strong> — required (YYYY-MM-DD)</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>gender</strong> — Male / Female / Other</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>bloodType</strong> — A+, B-, AB+, O- …</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>address</strong> — optional</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>city</strong> — optional</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>country</strong> — optional</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>lastDonationDate</strong> — optional</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>isAvailable</strong> — true / false</p>
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <button id="bulk-donor-download-template-btn" class="btn btn-outline" onclick="downloadTemplate()" style="font-size:0.8rem">
+          ⬇️ Download Template
+        </button>
+      </div>
+
+      <div id="bulk-drop-zone" data-testid="bulk-donor-drop-zone"
+        style="border:2px dashed var(--border);border-radius:12px;padding:40px 24px;text-align:center;cursor:pointer;transition:all .2s;background:var(--bg3)"
+        onclick="document.getElementById('bulk-file-input').click()"
+        ondragover="bulkDragOver(event)"
+        ondragleave="bulkDragLeave(event)"
+        ondrop="bulkDrop(event)">
+        <div style="font-size:2.2rem;margin-bottom:10px">📊</div>
+        <p style="font-family:var(--font-ui);font-weight:700;color:var(--text);font-size:0.9rem">Drop your Excel file here</p>
+        <p style="font-size:0.76rem;color:var(--text3);margin-top:4px">or click to browse — .xlsx / .xls files only</p>
+        <input type="file" id="bulk-file-input" accept=".xlsx,.xls" style="display:none" onchange="bulkFileSelected(event)"/>
+      </div>
+      <p id="bulk-file-name" style="font-size:0.78rem;color:var(--red);margin-top:8px;font-family:var(--font-ui);font-weight:700;min-height:18px"></p>
+    </div>
+
+    <!-- Step 2: Preview & confirm -->
+    <div id="bulk-step-2" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <button id="bulk-donor-back-btn" class="btn btn-outline" onclick="bulkReset()" style="font-size:0.78rem;padding:6px 14px">← Back</button>
+        <p id="bulk-preview-summary" style="font-size:0.82rem;color:var(--text2);font-family:var(--font-ui)"></p>
+      </div>
+      <div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:10px">
+        <table style="width:100%;border-collapse:collapse;font-size:0.75rem">
+          <thead id="bulk-preview-head" data-testid="bulk-donor-preview-head" style="background:var(--bg3);position:sticky;top:0"></thead>
+          <tbody id="bulk-preview-body"></tbody>
+        </table>
+      </div>
+      <p style="font-size:0.73rem;color:var(--text3);margin-top:8px">⚠️ Rows with invalid data or duplicate emails will be skipped during upload.</p>
+    </div>
+
+    <!-- Step 3: Results -->
+    <div id="bulk-step-3" style="display:none">
+      <div id="bulk-result-box" style="border-radius:10px;padding:20px;margin-bottom:16px"></div>
+      <div id="bulk-error-table-wrap" style="max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;display:none">
+        <table style="width:100%;border-collapse:collapse;font-size:0.75rem">
+          <thead style="background:var(--bg3)">
+            <tr>
+              <th style="padding:8px 12px;text-align:left;font-family:var(--font-ui)">Row</th>
+              <th style="padding:8px 12px;text-align:left;font-family:var(--font-ui)">Email</th>
+              <th style="padding:8px 12px;text-align:left;font-family:var(--font-ui)">Reason Skipped</th>
+            </tr>
+          </thead>
+          <tbody id="bulk-error-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('bulk-modal')" id="bulk-cancel-btn">Cancel</button>
+      <button class="btn btn-primary" id="bulk-confirm-btn" onclick="bulkConfirmUpload()" style="display:none">🚀 Upload Donors</button>
+      <button class="btn btn-primary" id="bulk-done-btn" onclick="closeModal('bulk-modal');loadDonors()" style="display:none">✅ Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ BULK INFO UPLOAD MODAL ═══ -->
+<div class="modal-overlay" id="bulk-info-modal">
+  <div class="modal" style="max-width:700px;width:95%">
+    <div class="modal-header">
+      <h3>📥 Bulk Hospital, Ambulance &amp; Blood Bank Upload</h3>
+      <button id="bulk-info-modal-close-btn" class="modal-close" onclick="closeModal('bulk-info-modal')">✕</button>
+    </div>
+
+    <!-- Step 1: Instructions & file pick -->
+    <div id="bi-step-1">
+      <div style="background:var(--red-light);border:1px solid rgba(200,16,46,0.15);border-radius:10px;padding:16px;margin-bottom:18px">
+        <p style="font-family:var(--font-ui);font-size:0.78rem;font-weight:700;color:var(--red);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.07em">📋 Required Excel Columns</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 20px">
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>category</strong> — Hospital / Ambulance / Blood Bank</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>name</strong> — required</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>phone</strong> — required</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>area</strong> — optional (city/district)</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>address</strong> — optional</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>notes</strong> — optional</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>available24h</strong> — true / false</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>lat</strong> — optional (decimal)</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>lng</strong> — optional (decimal)</p>
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <button id="bi-download-template-btn" class="btn btn-outline" onclick="downloadInfoTemplate()" style="font-size:0.8rem">
+          ⬇️ Download Template
+        </button>
+      </div>
+
+      <div id="bi-drop-zone" data-testid="bulk-info-drop-zone"
+        style="border:2px dashed var(--border);border-radius:12px;padding:40px 24px;text-align:center;cursor:pointer;transition:all .2s;background:var(--bg3)"
+        onclick="document.getElementById('bi-file-input').click()"
+        ondragover="biDragOver(event)"
+        ondragleave="biDragLeave(event)"
+        ondrop="biDrop(event)">
+        <div style="font-size:2.2rem;margin-bottom:10px">🏥</div>
+        <p style="font-family:var(--font-ui);font-weight:700;color:var(--text);font-size:0.9rem">Drop your Excel file here</p>
+        <p style="font-size:0.76rem;color:var(--text3);margin-top:4px">or click to browse — .xlsx / .xls files only</p>
+        <input type="file" id="bi-file-input" accept=".xlsx,.xls" style="display:none" onchange="biFileSelected(event)"/>
+      </div>
+      <p id="bi-file-name" style="font-size:0.78rem;color:var(--red);margin-top:8px;font-family:var(--font-ui);font-weight:700;min-height:18px"></p>
+    </div>
+
+    <!-- Step 2: Preview & confirm -->
+    <div id="bi-step-2" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <button id="bi-back-btn" class="btn btn-outline" onclick="biReset()" style="font-size:0.78rem;padding:6px 14px">← Back</button>
+        <p id="bi-preview-summary" style="font-size:0.82rem;color:var(--text2);font-family:var(--font-ui)"></p>
+      </div>
+      <div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:10px">
+        <table style="width:100%;border-collapse:collapse;font-size:0.75rem">
+          <thead id="bi-preview-head" data-testid="bulk-info-preview-head" style="background:var(--bg3);position:sticky;top:0"></thead>
+          <tbody id="bi-preview-body"></tbody>
+        </table>
+      </div>
+      <p style="font-size:0.73rem;color:var(--text3);margin-top:8px">⚠️ Rows with missing required fields or invalid category will be skipped.</p>
+    </div>
+
+    <!-- Step 3: Results -->
+    <div id="bi-step-3" style="display:none">
+      <div id="bi-result-box" style="border-radius:10px;padding:20px;margin-bottom:16px"></div>
+      <div id="bi-error-table-wrap" style="max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;display:none">
+        <table style="width:100%;border-collapse:collapse;font-size:0.75rem">
+          <thead style="background:var(--bg3)">
+            <tr>
+              <th style="padding:8px 12px;text-align:left;font-family:var(--font-ui)">Row</th>
+              <th style="padding:8px 12px;text-align:left;font-family:var(--font-ui)">Name</th>
+              <th style="padding:8px 12px;text-align:left;font-family:var(--font-ui)">Reason Skipped</th>
+            </tr>
+          </thead>
+          <tbody id="bi-error-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('bulk-info-modal')" id="bi-cancel-btn">Cancel</button>
+      <button class="btn btn-primary" id="bi-confirm-btn" onclick="biConfirmUpload()" style="display:none">🚀 Upload Entries</button>
+      <button class="btn btn-primary" id="bi-done-btn" onclick="closeModal('bulk-info-modal');loadInfo()" style="display:none">✅ Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DETAIL MODAL ═══ -->
+<div class="modal-overlay" id="detail-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Donor Details</h3>
+      <button id="detail-modal-close-btn" class="modal-close" onclick="closeModal('detail-modal')">✕</button>
+    </div>
+    <div id="detail-content" data-testid="donor-detail-content"></div>
+  </div>
+</div>
+
+<!-- ═══ INFO ENTRY MODAL ═══ -->
+<div class="modal-overlay" id="info-modal">
+  <div class="modal" style="max-width:620px;max-height:90vh;overflow-y:auto">
+    <div class="modal-header">
+      <h3 id="info-modal-title">Add Entry</h3>
+      <button id="info-modal-close-btn" class="modal-close" onclick="closeModal('info-modal')">✕</button>
+    </div>
+    <form id="info-form" data-testid="info-form" onsubmit="saveInfoEntry(event)">
+      <input type="hidden" id="info-id"/>
+      <div id="info-dup-warn" style="display:none;background:#FFF7ED;border:1.5px solid #FED7AA;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:0.82rem;color:#92400E;font-family:var(--font-ui)">
+        <strong>⚠️ Duplicate Detected</strong><br/><span id="info-dup-msg"></span>
+      </div>
+      <div id="info-section-basic" class="section-divider">Basic Details</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Category *</label>
+          <select id="info-category" required>
+            <option value="">Select category</option>
+            <option value="Hospital">🏥 Hospital</option>
+            <option value="Ambulance">🚑 Ambulance</option>
+            <option value="Blood Bank">🩸 Blood Bank</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Name *</label><input type="text" id="info-name" required placeholder="e.g. PSG Hospitals"/></div>
+        <div class="form-group"><label>Phone / Helpline *</label><input type="tel" id="info-phone" required placeholder="e.g. +91 98765 43210"/></div>
+        <div class="form-group"><label>Area / City</label><input type="text" id="info-area" placeholder="e.g. Coimbatore"/></div>
+        <div class="form-group full"><label>Address</label><input type="text" id="info-address" placeholder="Full street address"/></div>
+        <div class="form-group full"><label>Notes</label><textarea id="info-notes" placeholder="e.g. 24/7 emergency, trauma centre, blood bank on site…"></textarea></div>
+        <div class="form-group full" style="flex-direction:row;align-items:center;gap:10px;padding:6px 0">
+          <input type="checkbox" id="info-available24h" style="width:18px;height:18px;cursor:pointer;accent-color:var(--red)"/>
+          <label for="info-available24h" style="font-family:var(--font-ui);font-size:0.82rem;font-weight:600;color:var(--text2);text-transform:none;letter-spacing:0;cursor:pointer">Available 24 hours</label>
+        </div>
+      </div>
+
+      <div id="info-section-location" class="section-divider">
+        📍 Map Location
+        <span style="font-weight:400;color:var(--text3);font-size:0.78rem"> — used for map view (OpenStreetMap)</span>
+      </div>
+
+      <!-- Address search using Nominatim -->
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <input type="text" id="info-geocode-query"
+          placeholder="Search address on map (e.g. PSG Hospital, Coimbatore)…"
+          style="flex:1;background:var(--bg3);border:1.5px solid var(--border);border-radius:var(--radius-sm);
+                 padding:9px 12px;color:var(--text);font-family:var(--font-body);font-size:0.86rem;outline:none;transition:border-color .17s"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();nominatimSearch()}"/>
+        <button id="info-geocode-search-btn" type="button" class="btn btn-outline btn-sm" onclick="nominatimSearch()" style="white-space:nowrap;flex-shrink:0">🔍 Search</button>
+      </div>
+
+      <!-- Leaflet picker map -->
+      <div id="info-picker-map" data-testid="info-picker-map"
+           style="width:100%;height:240px;border-radius:var(--radius-sm);border:1.5px solid var(--border);
+                  overflow:hidden;position:relative;margin-bottom:10px;z-index:1">
+      </div>
+      <div style="font-size:0.72rem;color:var(--text3);margin-bottom:10px">
+        💡 Click the map to place or move the pin, drag the pin, search an address above, or enter coordinates below.
+      </div>
+
+      <!-- Manual lat/lng -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="form-group">
+          <label>Latitude</label>
+          <input type="number" id="info-lat" step="any" placeholder="e.g. 11.0168" oninput="onManualLatLng()"/>
+        </div>
+        <div class="form-group">
+          <label>Longitude</label>
+          <input type="number" id="info-lng" step="any" placeholder="e.g. 76.9558" oninput="onManualLatLng()"/>
+        </div>
+      </div>
+    </form>
+    <div class="modal-footer">
+      <button id="info-modal-cancel-btn" class="btn btn-outline" onclick="closeModal('info-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveInfoEntry(event)" id="save-info-btn">💾 Save Entry</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ REGISTRATION MODAL ═══ -->
+<div class="modal-overlay" id="signup-modal" style="z-index:9500">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <h3>✨ Create HS Employee Account</h3>
+      <button id="signup-modal-close-btn" class="modal-close" onclick="closeModal('signup-modal')">✕</button>
+    </div>
+
+    <div id="signup-info-notice" style="background:var(--red-light);border:1px solid rgba(200,16,46,0.15);border-radius:10px;padding:13px 15px;margin-bottom:18px">
+      <p style="font-family:var(--font-ui);font-size:0.76rem;color:var(--text2);line-height:1.5">
+        <strong style="color:var(--red);display:block;margin-bottom:3px">👁️ HS Employee Access</strong>
+        As an HS Employee you can <strong>view all data</strong> and <strong>add new records</strong> (donors, requirements, directory entries), but cannot edit or delete existing records.
+      </p>
+    </div>
+
+    <div class="login-error" id="signup-error" data-testid="signup-error"></div>
+    <div class="login-error" id="signup-success" data-testid="signup-success" style="background:#EDFBF3;border-color:#BBF7D0;color:#15803D;display:none"></div>
+
+    <div class="form-grid" style="grid-template-columns:1fr">
+      <div class="form-group">
+        <label>Username *</label>
+        <div class="login-input-wrap">
+          <span class="input-icon">👤</span>
+          <input type="text" id="reg-username" placeholder="Choose a username (min. 3 chars)"
+            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
+            autocomplete="off"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Email Address <span style="color:var(--text3);font-weight:400">(optional — used for password recovery)</span></label>
+        <div class="login-input-wrap">
+          <span class="input-icon">✉️</span>
+          <input type="email" id="reg-email" placeholder="you@example.com"
+            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
+            autocomplete="email"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Password *</label>
+        <div class="login-input-wrap">
+          <span class="input-icon">🔒</span>
+          <input type="password" id="reg-password" placeholder="At least 6 characters"
+            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
+            autocomplete="new-password"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Confirm Password *</label>
+        <div class="login-input-wrap">
+          <span class="input-icon">🔒</span>
+          <input type="password" id="reg-confirm-password" placeholder="Re-enter your password"
+            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
+            autocomplete="new-password"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Your Blood Type <span style="color:var(--text3);font-weight:400">(optional — for notifications)</span></label>
+        <select id="reg-bloodtype" data-testid="reg-bloodtype"
+          style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;cursor:pointer">
+          <option value="">— Not specified —</option>
+          <option value="A+">A+</option><option value="A-">A-</option>
+          <option value="B+">B+</option><option value="B-">B-</option>
+          <option value="AB+">AB+</option><option value="AB-">AB-</option>
+          <option value="O+">O+</option><option value="O-">O-</option>
+        </select>
+        <p style="font-size:0.72rem;color:var(--text3);margin-top:4px;font-family:var(--font-ui)">
+          You will receive notifications when blood of your type is urgently needed.
+        </p>
+      </div>
+    </div>
+
+    <div class="modal-footer" style="margin-top:8px">
+      <button id="signup-modal-cancel-btn" class="btn btn-outline" onclick="closeModal('signup-modal')">Cancel</button>
+      <button class="btn btn-primary" id="register-btn" onclick="doRegister()">✨ Create Account</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── FORGOT PASSWORD MODAL ──────────────────────────── -->
+<div class="modal-overlay" id="forgot-password-modal" style="z-index:9500">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h3>🔑 Reset Password</h3>
+      <button id="forgot-password-modal-close-btn" class="modal-close" onclick="closeModal('forgot-password-modal')">✕</button>
+    </div>
+
+    <div style="background:var(--red-light);border:1px solid rgba(200,16,46,0.15);border-radius:10px;padding:13px 15px;margin-bottom:18px">
+      <p style="font-family:var(--font-ui);font-size:0.76rem;color:var(--text2);line-height:1.5">
+        <strong style="color:var(--red);display:block;margin-bottom:3px">📧 Identity Verification</strong>
+        Enter your username and the email address linked to your account to reset your password.
+      </p>
+    </div>
+
+    <div class="login-error" id="fp-error" data-testid="fp-error"></div>
+    <div class="login-error" id="fp-success" data-testid="fp-success" style="background:#EDFBF3;border-color:#BBF7D0;color:#15803D;display:none"></div>
+
+    <div class="form-grid" style="grid-template-columns:1fr">
+      <div class="form-group">
+        <label>Username *</label>
+        <div class="login-input-wrap">
+          <span class="input-icon">👤</span>
+          <input type="text" id="fp-username" placeholder="Your username"
+            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
+            autocomplete="off"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Email Address *</label>
+        <div class="login-input-wrap">
+          <span class="input-icon">✉️</span>
+          <input type="email" id="fp-email" placeholder="Email linked to your account"
+            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
+            autocomplete="email"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>New Password *</label>
+        <div class="login-input-wrap">
+          <span class="input-icon">🔒</span>
+          <input type="password" id="fp-new-password" placeholder="At least 6 characters"
+            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
+            autocomplete="new-password"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Confirm New Password *</label>
+        <div class="login-input-wrap">
+          <span class="input-icon">🔒</span>
+          <input type="password" id="fp-confirm-password" placeholder="Re-enter new password"
+            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
+            autocomplete="new-password"
+            onkeydown="if(event.key==='Enter')doForgotPassword()"/>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer" style="margin-top:8px">
+      <button id="forgot-password-modal-cancel-btn" class="btn btn-outline" onclick="closeModal('forgot-password-modal')">Cancel</button>
+      <button class="btn btn-primary" id="fp-btn" onclick="doForgotPassword()">🔑 Reset Password</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ EXPORT DATA MODAL ═══ -->
+<div class="modal-overlay" id="export-modal" data-testid="export-modal">
+  <div class="modal" style="max-width:680px;width:95%">
+    <div class="modal-header">
+      <h3>📤 Export Data</h3>
+      <button id="export-modal-close-btn" class="modal-close" onclick="closeModal('export-modal')">✕</button>
+    </div>
+
+    <!-- Step 1: Configure -->
+    <div id="export-step-config">
+
+      <!-- Dataset selection -->
+      <div id="export-section-datasets" class="section-divider" style="margin-bottom:14px">Select Datasets</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">
+        <label id="export-ds-donors-label" style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--bg3);cursor:pointer;font-family:var(--font-ui);font-size:0.85rem;font-weight:600;transition:border-color .15s">
+          <input type="checkbox" id="export-ds-donors" data-testid="export-ds-donors" value="donors" checked style="width:16px;height:16px;accent-color:var(--red)"/>
+          👤 Donors
+        </label>
+        <label id="export-ds-requirements-label" style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--bg3);cursor:pointer;font-family:var(--font-ui);font-size:0.85rem;font-weight:600;transition:border-color .15s">
+          <input type="checkbox" id="export-ds-requirements" data-testid="export-ds-requirements" value="requirements" checked style="width:16px;height:16px;accent-color:var(--red)"/>
+          🩸 Requirements
+        </label>
+        <label id="export-ds-info-label" style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--bg3);cursor:pointer;font-family:var(--font-ui);font-size:0.85rem;font-weight:600;transition:border-color .15s">
+          <input type="checkbox" id="export-ds-info" data-testid="export-ds-info" value="info" checked style="width:16px;height:16px;accent-color:var(--red)"/>
+          📍 Info Directory
+        </label>
+        <label id="export-ds-users-label" style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--bg3);cursor:pointer;font-family:var(--font-ui);font-size:0.85rem;font-weight:600;transition:border-color .15s">
+          <input type="checkbox" id="export-ds-users" data-testid="export-ds-users" value="users" style="width:16px;height:16px;accent-color:var(--red)"/>
+          👥 Users
+        </label>
+      </div>
+
+      <!-- Donor filters -->
+      <div id="export-donor-filters">
+        <div id="export-section-donor-filters" class="section-divider" style="margin-bottom:12px">Donor Filters <span style="font-weight:400;color:var(--text3);font-size:0.78rem">(optional)</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">
+          <div class="form-group">
+            <label>Blood Type</label>
+            <select id="export-donor-blood" data-testid="export-donor-blood">
+              <option value="">All</option>
+              <option>A+</option><option>A-</option><option>B+</option><option>B-</option>
+              <option>AB+</option><option>AB-</option><option>O+</option><option>O-</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Availability</label>
+            <select id="export-donor-available" data-testid="export-donor-available">
+              <option value="">All</option>
+              <option value="true">Available</option>
+              <option value="false">Unavailable</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Registered From</label>
+            <input type="date" id="export-donor-date-from" data-testid="export-donor-date-from"/>
+          </div>
+          <div class="form-group">
+            <label>Registered To</label>
+            <input type="date" id="export-donor-date-to" data-testid="export-donor-date-to"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- Requirement filters -->
+      <div id="export-req-filters">
+        <div id="export-section-req-filters" class="section-divider" style="margin-bottom:12px">Requirement Filters <span style="font-weight:400;color:var(--text3);font-size:0.78rem">(optional)</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">
+          <div class="form-group">
+            <label>Status</label>
+            <select id="export-req-status" data-testid="export-req-status">
+              <option value="">All</option>
+              <option value="Open">Open</option>
+              <option value="Fulfilled">Fulfilled</option>
+              <option value="Cancelled">Cancelled</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Blood Type</label>
+            <select id="export-req-blood" data-testid="export-req-blood">
+              <option value="">All</option>
+              <option>A+</option><option>A-</option><option>B+</option><option>B-</option>
+              <option>AB+</option><option>AB-</option><option>O+</option><option>O-</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Urgency</label>
+            <select id="export-req-urgency" data-testid="export-req-urgency">
+              <option value="">All</option>
+              <option value="Critical">Critical</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Created From</label>
+            <input type="date" id="export-req-date-from" data-testid="export-req-date-from"/>
+          </div>
+          <div class="form-group">
+            <label>Created To</label>
+            <input type="date" id="export-req-date-to" data-testid="export-req-date-to"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- Info Directory filters -->
+      <div id="export-info-filters">
+        <div id="export-section-info-filters" class="section-divider" style="margin-bottom:12px">Info Directory Filters <span style="font-weight:400;color:var(--text3);font-size:0.78rem">(optional)</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+          <div class="form-group">
+            <label>Category</label>
+            <select id="export-info-category" data-testid="export-info-category">
+              <option value="">All Categories</option>
+              <option value="Hospital">🏥 Hospital</option>
+              <option value="Ambulance">🚑 Ambulance</option>
+              <option value="Blood Bank">🩸 Blood Bank</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Format selection -->
+      <div id="export-section-format" class="section-divider" style="margin-bottom:12px">Export Format</div>
+      <div style="display:flex;gap:10px;margin-bottom:6px">
+        <label id="export-fmt-xlsx-label" style="display:flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;border:1.5px solid var(--red);background:var(--red-light);cursor:pointer;font-family:var(--font-ui);font-size:0.85rem;font-weight:700;color:var(--red)">
+          <input type="radio" id="export-fmt-xlsx" data-testid="export-fmt-xlsx" name="export-format" value="xlsx" checked style="accent-color:var(--red)"/>
+          📊 Excel (.xlsx)
+        </label>
+        <label id="export-fmt-csv-label" style="display:flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;border:1.5px solid var(--border);background:var(--bg3);cursor:pointer;font-family:var(--font-ui);font-size:0.85rem;font-weight:600;color:var(--text2)">
+          <input type="radio" id="export-fmt-csv" data-testid="export-fmt-csv" name="export-format" value="csv" style="accent-color:var(--red)"/>
+          📄 CSV (.csv)
+        </label>
+        <label id="export-fmt-json-label" style="display:flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;border:1.5px solid var(--border);background:var(--bg3);cursor:pointer;font-family:var(--font-ui);font-size:0.85rem;font-weight:600;color:var(--text2)">
+          <input type="radio" id="export-fmt-json" data-testid="export-fmt-json" name="export-format" value="json" style="accent-color:var(--red)"/>
+          🔧 JSON (.json)
+        </label>
+      </div>
+      <p id="export-format-note" style="font-size:0.72rem;color:var(--text3);font-family:var(--font-ui);margin-bottom:4px">
+        Excel: one sheet per dataset. CSV: one file per dataset (zipped). JSON: single file with all datasets.
+      </p>
+    </div>
+
+    <!-- Step 2: Result -->
+    <div id="export-step-result" style="display:none">
+      <div id="export-result-box" style="border-radius:10px;padding:20px;margin-bottom:4px"></div>
+    </div>
+
+    <div class="modal-footer">
+      <button id="export-modal-cancel-btn" class="btn btn-outline" onclick="closeModal('export-modal')">Cancel</button>
+      <button id="export-preview-btn" data-testid="export-preview-btn" class="btn btn-outline" onclick="runExportPreview()" style="margin-left:auto">🔍 Preview Count</button>
+      <button id="export-download-btn" data-testid="export-download-btn" class="btn btn-primary" onclick="runExport()">📤 Export &amp; Download</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" data-testid="toast-container"></div>
+
+<!-- ═══ NOTIFICATION BELL (fixed top-right, outside all stacking contexts) ═══ -->
+<div id="notif-bell-wrap" data-testid="notif-bell-wrap" style="display:none;position:fixed;top:18px;right:24px;z-index:400">
+  <button id="notif-bell-btn" data-testid="notif-bell-btn" onclick="toggleNotifPanel()" title="Notifications" aria-label="Notifications"
+    style="position:relative;width:42px;height:42px;border-radius:12px;border:1.5px solid var(--border);background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text2);box-shadow:0 2px 8px rgba(0,0,0,0.08);transition:all .17s">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M15 17H9m3 0v1a3 3 0 01-6 0v-1m6 0H6m9 0h3M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <span id="notif-badge" data-testid="notif-badge" style="display:none;position:absolute;top:-6px;right:-6px;background:#C8102E;color:#fff;font-family:var(--font-ui);font-size:0.62rem;font-weight:800;min-width:18px;height:18px;border-radius:9px;align-items:center;justify-content:center;padding:0 4px;border:2px solid #fff">0</span>
+  </button>
+</div>
+
+<!-- ═══ NOTIFICATION PANEL ═══ -->
+<div id="notif-panel" data-testid="notif-panel" style="display:none;position:fixed;top:68px;right:24px;width:380px;max-width:calc(100vw - 32px);max-height:520px;background:#fff;border:1.5px solid var(--border);border-radius:16px;box-shadow:0 8px 40px rgba(0,0,0,0.14);z-index:400;display:none;flex-direction:column;overflow:hidden">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px 12px;border-bottom:1px solid var(--border2);flex-shrink:0">
+    <span style="font-family:var(--font-ui);font-weight:800;font-size:0.88rem;color:var(--text)">🔔 Notifications</span>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button id="notif-read-all-btn" data-testid="notif-read-all-btn" onclick="markAllNotifRead()" class="notif-action-btn">Mark all read</button>
+      <button id="notif-clear-btn" data-testid="notif-clear-btn" onclick="clearAllNotif()" class="notif-action-btn" style="color:#DC2626">Clear all</button>
+      <button onclick="toggleNotifPanel()" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:1.1rem;padding:2px 6px;border-radius:6px">✕</button>
+    </div>
+  </div>
+  <div id="notif-list" data-testid="notif-list" style="overflow-y:auto;flex:1">
+    <div class="notif-empty">No notifications yet</div>
+  </div>
+</div>
+
+<!-- ═══ NOTIFICATION OVERLAY (click outside to close) ═══ -->
+<div id="notif-overlay" onclick="closeNotifPanel()" style="display:none;position:fixed;inset:0;z-index:399"></div>
+
+<!-- ═══ EXTERNAL LIBRARIES ═══ -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- ═══ APP MODULES — load order matters ═══ -->
+<script src="js/config.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/dashboard.js"></script>
+<script src="js/donors.js"></script>
+<script src="js/users.js"></script>
+<script src="js/delete.js"></script>
+<script src="js/requirements.js"></script>
+<script src="js/bulk.js"></script>
+<script src="js/duplicates.js"></script>
+<script src="js/export.js"></script>
+<script src="js/info.js"></script>
+<script src="js/notifications.js"></script>
+<script src="js/profile.js"></script>
+<script src="js/animation.js"></script>
+
+</body>
+</html>
