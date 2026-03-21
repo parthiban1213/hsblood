@@ -31,7 +31,7 @@ async function deleteDonor(id,name){
     async () => {
       const res=await apiFetch('/donors/'+id,{method:'DELETE'});
       if(res.success){showToast(res.message);loadDonors();loadDashboard();}
-      else showToast(res.error,'error');
+      else showToast(res.error||'Operation failed. Please try again.','error');
     }
   );
 }

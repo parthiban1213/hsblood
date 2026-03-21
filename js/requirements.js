@@ -110,7 +110,7 @@ function openReqModal(){
 async function editRequirement(id){
   if(!isAdmin()){ showToast('Admin access required.','warn'); return; }
   const res=await apiFetch('/requirements/'+id);
-  if(!res.success){showToast(res.error,'error');return;}
+  if(!res.success){showToast(res.error||'Operation failed. Please try again.','error');return;}
   const r=res.data;
   document.getElementById('req-id').value=r._id;
   document.getElementById('req-modal-title').textContent='Edit Blood Requirement';
@@ -157,12 +157,18 @@ async function saveRequirement(e){
       showToast(res.message||'Saved!');
       closeModal('req-modal');
       loadRequirements();
+      // For new requirements, refresh notifications immediately — the backend
+      // now awaits notification creation before responding, so a short delay
+      // is enough to guarantee the new notifications are in the DB.
+      if (!id && typeof fetchNotifications === 'function') {
+        setTimeout(fetchNotifications, 300);
+      }
     } else {
       if(res.status===409||res.error?.toLowerCase().includes('already exists')||res.error?.toLowerCase().includes('duplicate')){
-        document.getElementById('req-dup-msg').textContent=res.error;
+        document.getElementById('req-dup-msg').textContent=res.error||'A requirement with this information already exists.';
         document.getElementById('req-dup-warn').style.display='';
       }
-      showToast(res.error,'error');
+      showToast(res.error||'Operation failed. Please try again.','error');
     }
   } catch(err) {
     showToast('Request failed. Please check your connection.','error');
@@ -173,7 +179,7 @@ async function saveRequirement(e){
 
 async function viewRequirement(id){
   const res=await apiFetch('/requirements/'+id);
-  if(!res.success){showToast(res.error,'error');return;}
+  if(!res.success){showToast(res.error||'Operation failed. Please try again.','error');return;}
   const r=res.data;
   document.getElementById('req-detail-content').innerHTML=`
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px;padding:16px;background:var(--red-light);border-radius:12px;border:1px solid rgba(200,16,46,0.1)">
@@ -244,7 +250,7 @@ async function quickUpdateStatus(id, selectEl) {
     renderRequirementStats(allRequirements);
     loadDashboard(); // refresh benefitted count if status changed to Fulfilled
   } else {
-    showToast(res.error || 'Failed to update status', 'error');
+    showToast(res.error || 'Could not update the status. Please try again.', 'error');
     // Revert the select on failure
     const req = allRequirements.find(r => r._id === id);
     if (req) { selectEl.value = req.status; selectEl.className = 'req-status-select s-' + req.status; }
@@ -262,7 +268,7 @@ async function quickUpdateStatusFromModal(id, newStatus, btnEl) {
     loadRequirements();
     closeModal('req-detail-modal');
   } else {
-    showToast(res.error || 'Failed to update status', 'error');
+    showToast(res.error || 'Could not update the status. Please try again.', 'error');
   }
 }
 
@@ -274,7 +280,7 @@ async function deleteRequirement(id,name){
     async () => {
       const res=await apiFetch('/requirements/'+id,{method:'DELETE'});
       if(res.success){showToast(res.message);loadRequirements();}
-      else showToast(res.error,'error');
+      else showToast(res.error||'Operation failed. Please try again.','error');
     }
   );
 }

@@ -7,7 +7,7 @@ let notifData        = [];       // cached notifications
 let notifPollTimer   = null;     // setInterval handle
 let notifPanelOpen   = false;
 
-const POLL_INTERVAL  = 30000;    // poll every 30 seconds
+const POLL_INTERVAL  = 15000;    // poll every 15 seconds (was 30s)
 
 // ── Init ──────────────────────────────────────────────────────
 // Called from launchApp() after login
@@ -64,7 +64,6 @@ function openNotifPanel() {
   panel.style.flexDirection = 'column';
   document.getElementById('notif-overlay').style.display = 'block';
   renderNotifList();
-  // Fetch fresh data when opening
   fetchNotifications();
 }
 

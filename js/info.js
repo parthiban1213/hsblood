@@ -368,7 +368,7 @@ function openInfoModal() {
 async function editInfoEntry(id) {
   if (!isAdmin()) { showToast('Admin access required.', 'warn'); return; }
   const res = await apiFetch('/info/' + id);
-  if (!res.success) { showToast(res.error, 'error'); return; }
+  if (!res.success) { showToast(res.error||'Operation failed. Please try again.', 'error'); return; }
   const e = res.data;
   document.getElementById('info-modal-title').textContent  = 'Edit Entry';
   document.getElementById('info-id').value                 = e._id;
@@ -421,10 +421,10 @@ async function saveInfoEntry(evt) {
       if (infoCurrentView === 'map') { renderMapSidebar(); refreshMapMarkers(); }
     } else {
       if (res.status===409||res.error?.toLowerCase().includes('already exists')||res.error?.toLowerCase().includes('duplicate')) {
-        document.getElementById('info-dup-msg').textContent = res.error;
+        document.getElementById('info-dup-msg').textContent = res.error||'A record with this information already exists.';
         document.getElementById('info-dup-warn').style.display = '';
       }
-      showToast(res.error, 'error');
+      showToast(res.error||'Operation failed. Please try again.', 'error');
     }
   } catch(err) {
     showToast('Request failed. Please check your connection.','error');
@@ -441,7 +441,7 @@ async function deleteInfoEntry(id, name) {
     async () => {
       const res = await apiFetch('/info/' + id, { method: 'DELETE' });
       if (res.success) { showToast(res.message); loadInfo(); }
-      else showToast(res.error, 'error');
+      else showToast(res.error||'Operation failed. Please try again.', 'error');
     }
   );
 }

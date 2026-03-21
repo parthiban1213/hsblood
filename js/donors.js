@@ -16,7 +16,7 @@ async function loadDonors(){
         <p>${res.error||'Could not connect to the server.'}</p>
         <button id="btn-donors-retry" class="btn btn-outline" style="margin-top:12px" onclick="loadDonors()">↻ Retry</button>
       </div>`;
-    showToast(res.error||'Failed to load donors','error');
+    showToast(res.error||'Could not load donors. Please refresh and try again.','error');
   }
 }
 
@@ -139,10 +139,10 @@ async function saveDonor(e){
       loadDashboard();
     } else {
       if(res.status===409||res.error?.toLowerCase().includes('already exists')||res.error?.toLowerCase().includes('duplicate')){
-        document.getElementById('donor-dup-msg').textContent=res.error;
+        document.getElementById('donor-dup-msg').textContent=res.error||'A donor with this information already exists.';
         document.getElementById('donor-dup-warn').style.display='';
       }
-      showToast(res.error,'error');
+      showToast(res.error||'Operation failed. Please try again.','error');
     }
   } catch(err) {
     showToast('Request failed. Please check your connection.','error');
@@ -154,7 +154,7 @@ async function saveDonor(e){
 async function editDonor(id){
   if(!isAdmin()){ showToast('Permission denied. Admin access required.','warn'); return; }
   const res=await apiFetch('/donors/'+id);
-  if(!res.success){showToast(res.error,'error');return;}
+  if(!res.success){showToast(res.error||'Operation failed. Please try again.','error');return;}
   const d=res.data;
   document.getElementById('donor-id').value=d._id;
   document.getElementById('donor-modal-title').textContent='Edit Donor';
@@ -175,7 +175,7 @@ async function editDonor(id){
 
 async function viewDonor(id){
   const res=await apiFetch('/donors/'+id);
-  if(!res.success){showToast(res.error,'error');return;}
+  if(!res.success){showToast(res.error||'Operation failed. Please try again.','error');return;}
   const d=res.data;
   const fields=[
     ['First Name',d.firstName],['Last Name',d.lastName],

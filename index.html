@@ -1543,17 +1543,17 @@
 </div>
 
 <!-- ═══ NOTIFICATION PANEL ═══ -->
-<div id="notif-panel" data-testid="notif-panel" style="display:none;position:fixed;top:68px;right:24px;width:380px;max-width:calc(100vw - 32px);max-height:520px;background:#fff;border:1.5px solid var(--border);border-radius:16px;box-shadow:0 8px 40px rgba(0,0,0,0.14);z-index:400;display:none;flex-direction:column;overflow:hidden">
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px 12px;border-bottom:1px solid var(--border2);flex-shrink:0">
-    <span style="font-family:var(--font-ui);font-weight:800;font-size:0.88rem;color:var(--text)">🔔 Notifications</span>
-    <div style="display:flex;gap:8px;align-items:center">
-      <button id="notif-read-all-btn" data-testid="notif-read-all-btn" onclick="markAllNotifRead()" class="notif-action-btn">Mark all read</button>
-      <button id="notif-clear-btn" data-testid="notif-clear-btn" onclick="clearAllNotif()" class="notif-action-btn" style="color:#DC2626">Clear all</button>
-      <button onclick="toggleNotifPanel()" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:1.1rem;padding:2px 6px;border-radius:6px">✕</button>
+<div id="notif-panel" data-testid="notif-panel" style="display:none;position:fixed;top:68px;right:24px;width:380px;max-width:calc(100vw - 32px);background:#fff;border:1.5px solid var(--border);border-radius:16px;box-shadow:0 8px 40px rgba(0,0,0,0.14);z-index:400;flex-direction:column;overflow:hidden">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border2);flex-shrink:0;gap:10px">
+    <span style="font-family:var(--font-ui);font-weight:800;font-size:0.88rem;color:var(--text);white-space:nowrap;flex-shrink:0">🔔 Notifications</span>
+    <div style="display:flex;gap:5px;align-items:center;flex-shrink:0">
+      <button id="notif-read-all-btn" data-testid="notif-read-all-btn" onclick="markAllNotifRead()" class="btn btn-outline" style="padding:3px 8px;font-size:0.68rem;white-space:nowrap">✓ Read all</button>
+      <button id="notif-clear-btn" data-testid="notif-clear-btn" onclick="clearAllNotif()" class="btn btn-danger" style="padding:3px 8px;font-size:0.68rem;white-space:nowrap">🗑 Clear</button>
+      <button onclick="toggleNotifPanel()" class="btn btn-outline" style="padding:3px 7px;font-size:0.68rem;white-space:nowrap" title="Close notifications" aria-label="Close">✕</button>
     </div>
   </div>
-  <div id="notif-list" data-testid="notif-list" style="overflow-y:auto;flex:1">
-    <div class="notif-empty">No notifications yet</div>
+  <div id="notif-list" data-testid="notif-list">
+    <div class="notif-empty">🔕 No notifications yet</div>
   </div>
 </div>
 

@@ -22,6 +22,43 @@ if (TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM) {
   console.log('ℹ️  Twilio not configured — SMS notifications disabled');
 }
 
+// ── FRIENDLY ERROR HELPER ────────────────────────────────────────────────────
+// Converts raw database/system errors into readable messages for users.
+// Technical details are logged server-side only.
+function friendlyError(err, context = '') {
+  if (context) console.error(`[${context}]`, err.message || err);
+
+  // MongoDB duplicate key
+  if (err.code === 11000) {
+    const field = Object.keys(err.keyPattern || {})[0] || 'field';
+    const fieldLabel = field === 'username' ? 'Username'
+                     : field === 'email'    ? 'Email address'
+                     : field === 'phone'    ? 'Phone number'
+                     : field.charAt(0).toUpperCase() + field.slice(1);
+    return `${fieldLabel} already exists. Please use a different one.`;
+  }
+  // Mongoose validation errors
+  if (err.name === 'ValidationError') {
+    const msgs = Object.values(err.errors).map(e => e.message);
+    return msgs.length ? msgs[0] : 'One or more fields are invalid. Please check your input.';
+  }
+  // Cast errors (e.g. invalid ObjectId)
+  if (err.name === 'CastError') {
+    return 'Invalid ID format. Please refresh the page and try again.';
+  }
+  // MongoDB network / connection errors
+  if (err.name === 'MongoNetworkError' || err.name === 'MongoServerSelectionError') {
+    return 'Unable to reach the database. Please try again in a moment.';
+  }
+  // JWT errors (shouldn't normally reach here, but just in case)
+  if (err.name === 'JsonWebTokenError') return 'Invalid session. Please log in again.';
+  if (err.name === 'TokenExpiredError')  return 'Your session has expired. Please log in again.';
+
+  // Generic fallback — never expose raw err.message to the client
+  return 'Something went wrong on the server. Please try again or contact support.';
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Helper: create in-app notifications for users with matching blood type
 async function createInAppNotifications(requirement) {
   try {
@@ -106,7 +143,7 @@ async function notifyMatchingDonors(requirement) {
       sent++;
     } catch(err) {
       failed++;
-      errors.push({ donor: `${donor.firstName} ${donor.lastName}`, error: err.message });
+      errors.push({ donor: `${donor.firstName} ${donor.lastName}`, error: 'SMS could not be delivered.' });
     }
   }
 
@@ -357,7 +394,7 @@ app.post('/api/auth/login', async (req, res) => {
       message: `Welcome back, ${user.username}!`
     });
   } catch(err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
   }
 });
 
@@ -408,7 +445,7 @@ app.post('/api/auth/register', async (req, res) => {
   } catch(err) {
     if (err.code === 11000)
       return res.status(409).json({ success: false, error: 'Username already exists. Please choose a different one.' });
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
   }
 });
 
@@ -440,7 +477,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
     res.json({ success: true, message: 'Password reset successfully! You can now sign in.' });
   } catch(err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
   }
 });
 
@@ -473,7 +510,7 @@ app.post('/api/auth/change-password', authenticate, async (req, res) => {
 
     res.json({ success: true, message: 'Password updated successfully!' });
   } catch(err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
   }
 });
 
@@ -484,7 +521,7 @@ app.get('/api/blood-types', authenticate, async (req, res) => {
   try {
     const types = await BloodType.find().sort('type');
     res.json({ success: true, data: types });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 app.get('/api/blood-types/:type', authenticate, async (req, res) => {
@@ -492,7 +529,7 @@ app.get('/api/blood-types/:type', authenticate, async (req, res) => {
     const bt = await BloodType.findOne({ type: req.params.type.toUpperCase() });
     if (!bt) return res.status(404).json({ success: false, error: 'Blood type not found' });
     res.json({ success: true, data: bt });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 app.post('/api/blood-types', authenticate, adminOnly, async (req, res) => {
@@ -506,14 +543,14 @@ app.post('/api/blood-types', authenticate, adminOnly, async (req, res) => {
     const bt = new BloodType(req.body);
     await bt.save();
     res.status(201).json({ success: true, data: bt, message: 'Blood type created' });
-  } catch(err) { res.status(400).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(400).json({ success: false, error: friendlyError(err, 'Validation') }); }
 });
 
 app.delete('/api/blood-types/:id', authenticate, adminOnly, async (req, res) => {
   try {
     await BloodType.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Blood type deleted' });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // ─── DONOR ROUTES ─────────────────────────────────────────────
@@ -526,7 +563,7 @@ app.get('/api/donors', authenticate, async (req, res) => {
     if (req.query.email)     filter.email = req.query.email.trim().toLowerCase();
     const donors = await Donor.find(filter).sort('-createdAt');
     res.json({ success: true, data: donors, count: donors.length });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // Admin only — bulk upload donors from parsed Excel data
@@ -616,7 +653,7 @@ app.post('/api/donors/bulk', authenticate, adminOnly, async (req, res) => {
         results.errors.push({
           row: rowNum,
           email: (raw.email || '').toString(),
-          reason: isDuplicate ? 'Email already exists in registry' : rowErr.message
+          reason: isDuplicate ? 'Email already exists in registry' : (rowErr.name === 'ValidationError' ? Object.values(rowErr.errors).map(e => e.message).join('; ') : rowErr.message)
         });
       }
     }
@@ -627,7 +664,7 @@ app.post('/api/donors/bulk', authenticate, adminOnly, async (req, res) => {
       data: results
     });
   } catch(err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
   }
 });
 
@@ -637,7 +674,7 @@ app.get('/api/donors/:id', authenticate, async (req, res) => {
     const donor = await Donor.findById(req.params.id);
     if (!donor) return res.status(404).json({ success: false, error: 'Donor not found' });
     res.json({ success: true, data: donor });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 
@@ -662,7 +699,7 @@ app.post('/api/donors', authenticate, async (req, res) => {
   } catch(err) {
     if (err.code === 11000)
       return res.status(409).json({ success: false, error: 'A donor with this email already exists.' });
-    res.status(400).json({ success: false, error: err.message });
+    res.status(400).json({ success: false, error: friendlyError(err, 'Validation') });
   }
 });
 
@@ -674,7 +711,7 @@ app.put('/api/donors/:id', authenticate, adminOnly, async (req, res) => {
     const donor = await Donor.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!donor) return res.status(404).json({ success: false, error: 'Donor not found' });
     res.json({ success: true, data: donor, message: 'Donor updated successfully!' });
-  } catch(err) { res.status(400).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(400).json({ success: false, error: friendlyError(err, 'Validation') }); }
 });
 
 // Admin only — delete donor
@@ -682,7 +719,7 @@ app.delete('/api/donors/:id', authenticate, adminOnly, async (req, res) => {
   try {
     await Donor.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Donor removed from registry.' });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 
@@ -708,7 +745,7 @@ app.get('/api/stats', authenticate, async (req, res) => {
     const unitsDelivered = unitsDeliveredAgg.length ? unitsDeliveredAgg[0].total : 0;
 
     res.json({ success: true, data: { totalDonors, availableDonors, byBloodType, peopleHelped, fulfilledRequirements, unitsDelivered } });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // ─── BLOOD REQUIREMENT ROUTES ─────────────────────────────────
@@ -722,7 +759,7 @@ app.get('/api/requirements', authenticate, async (req, res) => {
     if (req.query.urgency)   filter.urgency   = req.query.urgency;
     const reqs = await BloodRequirement.find(filter).sort('-createdAt');
     res.json({ success: true, data: reqs, count: reqs.length });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // Get single requirement — both roles
@@ -731,7 +768,7 @@ app.get('/api/requirements/:id', authenticate, async (req, res) => {
     const req_ = await BloodRequirement.findById(req.params.id);
     if (!req_) return res.status(404).json({ success: false, error: 'Requirement not found' });
     res.json({ success: true, data: req_ });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // Create requirement — both roles can add
@@ -759,8 +796,9 @@ app.post('/api/requirements', authenticate, async (req, res) => {
     const req_ = new BloodRequirement(req.body);
     await req_.save();
 
-    // Create in-app notifications — runs in background
-    createInAppNotifications(req_).catch(err => console.error('In-app notification error:', err));
+    // Create in-app notifications — awaited so they are committed to DB before
+    // the response is sent, ensuring the frontend sees them on the next fetch.
+    await createInAppNotifications(req_).catch(err => console.error('In-app notification error:', err));
 
     // Send SMS to matching available donors — runs in background, doesn't block response
     notifyMatchingDonors(req_).then(smsResult => {
@@ -775,7 +813,7 @@ app.post('/api/requirements', authenticate, async (req, res) => {
       message: 'Blood requirement created successfully!'
     });
   } catch(err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(400).json({ success: false, error: friendlyError(err, 'Validation') });
   }
 });
 
@@ -786,7 +824,7 @@ app.put('/api/requirements/:id', authenticate, adminOnly, async (req, res) => {
     const req_ = await BloodRequirement.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!req_) return res.status(404).json({ success: false, error: 'Requirement not found' });
     res.json({ success: true, data: req_, message: 'Requirement updated successfully!' });
-  } catch(err) { res.status(400).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(400).json({ success: false, error: friendlyError(err, 'Validation') }); }
 });
 
 // Delete requirement — admin only
@@ -794,7 +832,7 @@ app.delete('/api/requirements/:id', authenticate, adminOnly, async (req, res) =>
   try {
     await BloodRequirement.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Requirement deleted.' });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // Admin only — bulk upload requirements from Excel
@@ -890,7 +928,7 @@ app.post('/api/requirements/bulk', authenticate, adminOnly, async (req, res) => 
       data: results
     });
   } catch(err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
   }
 });
 
@@ -903,7 +941,7 @@ app.get('/api/info', authenticate, async (req, res) => {
     if (req.query.category) filter.category = req.query.category;
     const entries = await InfoEntry.find(filter).sort('category name');
     res.json({ success: true, data: entries, count: entries.length });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // Get single entry — both roles
@@ -974,7 +1012,7 @@ app.post('/api/info/bulk', authenticate, adminOnly, async (req, res) => {
       data: results
     });
   } catch(err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
   }
 });
 
@@ -983,7 +1021,7 @@ app.get('/api/info/:id', authenticate, async (req, res) => {
     const entry = await InfoEntry.findById(req.params.id);
     if (!entry) return res.status(404).json({ success: false, error: 'Entry not found' });
     res.json({ success: true, data: entry });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // Create entry — admin only
@@ -1009,7 +1047,7 @@ app.post('/api/info', authenticate, adminOnly, async (req, res) => {
   } catch(err) {
     if (err.code === 11000)
       return res.status(409).json({ success: false, error: 'An entry with this name and phone number already exists.' });
-    res.status(400).json({ success: false, error: err.message });
+    res.status(400).json({ success: false, error: friendlyError(err, 'Validation') });
   }
 });
 
@@ -1020,7 +1058,7 @@ app.put('/api/info/:id', authenticate, adminOnly, async (req, res) => {
     const entry = await InfoEntry.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!entry) return res.status(404).json({ success: false, error: 'Entry not found' });
     res.json({ success: true, data: entry, message: 'Entry updated successfully!' });
-  } catch(err) { res.status(400).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(400).json({ success: false, error: friendlyError(err, 'Validation') }); }
 });
 
 // Delete entry — admin only
@@ -1028,7 +1066,7 @@ app.delete('/api/info/:id', authenticate, adminOnly, async (req, res) => {
   try {
     await InfoEntry.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Entry deleted.' });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // ─── USER MANAGEMENT (admin only) ────────────────────────────
@@ -1038,7 +1076,7 @@ app.get('/api/users', authenticate, adminOnly, async (req, res) => {
   try {
     const users = await User.find({}, '-password').sort({ createdAt: -1 });
     res.json({ success: true, data: users });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // Create user
@@ -1067,7 +1105,7 @@ app.post('/api/users', authenticate, adminOnly, async (req, res) => {
     res.status(201).json({ success: true, message: `User "${user.username}" created.`, data: { _id: user._id, username: user.username, email: user.email, role: user.role, bloodType: user.bloodType || '', createdAt: user.createdAt } });
   } catch(err) {
     if (err.code === 11000) return res.status(409).json({ success: false, error: 'Username already exists.' });
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
   }
 });
 
@@ -1096,7 +1134,7 @@ app.put('/api/users/:id', authenticate, adminOnly, async (req, res) => {
     }
     await user.save();
     res.json({ success: true, message: `User "${user.username}" updated.`, data: { _id: user._id, username: user.username, email: user.email, role: user.role, bloodType: user.bloodType || '', createdAt: user.createdAt } });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // Delete user (cannot delete own account)
@@ -1107,7 +1145,7 @@ app.delete('/api/users/:id', authenticate, adminOnly, async (req, res) => {
     const user = await User.findByIdAndDelete(req.params.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
     res.json({ success: true, message: `User "${user.username}" deleted.` });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // ─── EXPORT ROUTES (admin only) ──────────────────────────────
@@ -1225,7 +1263,7 @@ app.get('/api/export', authenticate, adminOnly, async (req, res) => {
 
     res.json({ success: true, data: result });
   } catch(err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
   }
 });
 
@@ -1237,7 +1275,7 @@ app.get('/api/auth/profile', authenticate, async (req, res) => {
     const user = await User.findById(req.user.id, '-password').lean();
     if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
     res.json({ success: true, user });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // PUT /api/auth/profile — update own profile (username, email, bloodType)
@@ -1278,7 +1316,7 @@ app.put('/api/auth/profile', authenticate, async (req, res) => {
     // Return updated user (no password)
     const updated = { username: user.username, email: user.email, role: user.role, bloodType: user.bloodType || '' };
     res.json({ success: true, user: updated, message: 'Profile updated successfully!' });
-  } catch(err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // ─── NOTIFICATION ROUTES ─────────────────────────────────────
@@ -1293,7 +1331,7 @@ app.get('/api/notifications', authenticate, async (req, res) => {
     const unreadCount = notifications.filter(n => !n.isRead).length;
     res.json({ success: true, data: notifications, unreadCount });
   } catch(err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
   }
 });
 
@@ -1303,7 +1341,7 @@ app.put('/api/notifications/read-all', authenticate, async (req, res) => {
     await Notification.updateMany({ username: req.user.username, isRead: false }, { isRead: true });
     res.json({ success: true });
   } catch(err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
   }
 });
 
@@ -1316,7 +1354,7 @@ app.put('/api/notifications/:id/read', authenticate, async (req, res) => {
     );
     res.json({ success: true });
   } catch(err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
   }
 });
 
@@ -1326,7 +1364,7 @@ app.delete('/api/notifications', authenticate, async (req, res) => {
     await Notification.deleteMany({ username: req.user.username });
     res.json({ success: true });
   } catch(err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
   }
 });
 
@@ -1336,15 +1374,15 @@ app.delete('/api/notifications/:id', authenticate, async (req, res) => {
     await Notification.findOneAndDelete({ _id: req.params.id, username: req.user.username });
     res.json({ success: true });
   } catch(err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
   }
 });
 
 // ─── GLOBAL ERROR HANDLER ────────────────────────────────────
 // Catches any error passed via next(err) from route handlers
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err.message);
-  res.status(err.status || 500).json({ success: false, error: err.message || 'Internal server error' });
+  console.error('Unhandled error:', err.message || err);
+  res.status(err.status || 500).json({ success: false, error: friendlyError(err, 'GlobalHandler') });
 });
 
 // Catch unhandled promise rejections so the process doesn't crash silently

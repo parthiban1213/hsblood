@@ -127,7 +127,7 @@ async function deleteUser(id, username) {
     async () => {
       const res = await apiFetch('/users/' + id, { method: 'DELETE' });
       if (res.success) { showToast(res.message); loadUsers(); }
-      else showToast(res.error, 'error');
+      else showToast(res.error||'Operation failed. Please try again.', 'error');
     }
   );
 }
