@@ -48,6 +48,8 @@ function renderProfile(user) {
   const deleteZone = document.getElementById('profile-delete-zone');
   if (deleteZone) deleteZone.style.display = user.role === 'admin' ? 'none' : '';
 
+  _setVal('profile-firstName', user.firstName || '');
+  _setVal('profile-lastName',  user.lastName  || '');
   _setVal('profile-username',  user.username  || '');
   _setVal('profile-email',     user.email     || '');
   _setVal('profile-bloodtype', user.bloodType || '');
@@ -70,6 +72,8 @@ async function saveProfile() {
   const btn = document.getElementById('profile-save-btn');
   btn.disabled = true; btn.textContent = 'Saving…';
 
+  const firstName    = document.getElementById('profile-firstName')?.value.trim();
+  const lastName     = document.getElementById('profile-lastName')?.value.trim();
   const username     = document.getElementById('profile-username')?.value.trim();
   const email        = document.getElementById('profile-email')?.value.trim();
   const bloodType    = document.getElementById('profile-bloodtype')?.value;
@@ -87,7 +91,7 @@ async function saveProfile() {
   try {
     const res = await apiFetch('/auth/profile', {
       method: 'PUT',
-      body: JSON.stringify({ username, email, bloodType, gender,
+      body: JSON.stringify({ firstName, lastName, username, email, bloodType, gender,
         dateOfBirth: dateOfBirth || null, isAvailable, address,
         lastDonationDate: lastDonation || null })
     });

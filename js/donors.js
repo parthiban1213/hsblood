@@ -77,11 +77,10 @@ function renderDonors(donors){
       </div>`).join('')}</div>`;
   }else{
     el.innerHTML=`<div class="table-wrap"><table>
-      <thead><tr><th>Name</th><th>Blood Type</th><th>Gender</th><th>Phone</th><th>Last Donation</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Name</th><th>Blood Type</th><th>Phone</th><th>Last Donation</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>${donors.map(d=>`<tr data-testid="donor-row" data-id="${d._id}">
         <td class="bold">${d.firstName} ${d.lastName}</td>
         <td><span class="blood-badge">${d.bloodType}</span></td>
-        <td>${d.gender}</td>
         <td>${d.phone}</td>
         <td>${formatDate(d.lastDonationDate)}</td>
         <td><span class="status-dot ${d.isAvailable?'available':'unavailable'}">${d.isAvailable?'Available':'Unavailable'}</span></td>

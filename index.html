@@ -834,12 +834,14 @@
 
     <!-- ═══ USER MANAGEMENT PAGE ═══ -->
     <div id="page-users" data-testid="page-users" aria-label="User Management page" class="page" style="display:none">
-      <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div class="page-header-row page-header">
         <div>
           <h2>User <span>Management</span></h2>
           <p>Add, edit, and manage HS system accounts</p>
         </div>
-        <button id="btn-open-user-modal" class="btn btn-primary" onclick="openUserModal()">➕ Add User</button>
+        <div>
+          <button id="btn-open-user-modal" class="btn btn-primary" onclick="openUserModal()">➕ Add User</button>
+        </div>
       </div>
 
       <!-- Summary bar -->
@@ -902,6 +904,20 @@
 
         <!-- Section: Account -->
         <div style="font-family:var(--font-ui);font-size:0.72rem;font-weight:700;color:var(--text3);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border2)">Account Details</div>
+        <div class="profile-field-row">
+          <div class="form-group">
+            <label>First Name</label>
+            <input type="text" id="profile-firstName" data-testid="profile-firstName"
+              placeholder="Your first name"
+              style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+          </div>
+          <div class="form-group">
+            <label>Last Name</label>
+            <input type="text" id="profile-lastName" data-testid="profile-lastName"
+              placeholder="Your last name"
+              style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+          </div>
+        </div>
         <div class="profile-field-row">
           <div class="form-group">
             <label>Username</label>

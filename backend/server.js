@@ -230,6 +230,8 @@ const userSchema = new mongoose.Schema({
   isAvailable:      { type: Boolean, default: true },
   address:          { type: String, default: '', trim: true },
   lastDonationDate: { type: Date, default: null },
+  firstName:        { type: String, default: '', trim: true },
+  lastName:         { type: String, default: '', trim: true },
   donorId:          { type: mongoose.Schema.Types.ObjectId, ref: 'Donor', default: null },
   createdAt:        { type: Date, default: Date.now }
 });
@@ -406,15 +408,24 @@ app.post('/api/auth/otp/send', async (req, res) => {
     if (!mobile || !/^[6-9]\d{9}$/.test(mobile.trim()))
       return res.status(400).json({ success: false, error: 'Please enter a valid 10-digit Indian mobile number.' });
 
-    const mob = mobile.trim();
+    const mob     = mobile.trim();
+    const purpose = (req.body.purpose || 'login').trim();
+
+    // Check if mobile is registered — block login attempts for unregistered numbers
+    const existingUser  = await User.findOne({ mobile: mob }).lean();
+    const existingDonor = await Donor.findOne({ phone: mob }).lean();
+
+    if (purpose !== 'register' && !existingUser && !existingDonor) {
+      return res.status(404).json({
+        success: false,
+        error: 'No account found for this mobile number. Please register first.',
+      });
+    }
+
     const otp = generateOTP();
     otpStore.set(mob, { otp, expiresAt: Date.now() + 10 * 60 * 1000 });
 
     await sendOTP(mob, otp);
-
-    // Check if mobile exists in donor list or as a user — tell frontend the status
-    const existingUser  = await User.findOne({ mobile: mob }).lean();
-    const existingDonor = await Donor.findOne({ phone: mob }).lean();
 
     res.json({
       success: true,
@@ -1499,8 +1510,32 @@ app.delete('/api/info/:id', authenticate, adminOnly, async (req, res) => {
 // List all users
 app.get('/api/users', authenticate, adminOnly, async (req, res) => {
   try {
-    const users = await User.find({}, '-password').sort({ createdAt: -1 });
-    res.json({ success: true, data: users });
+    const users = await User.find({}, '-password').sort({ createdAt: -1 }).lean();
+
+    // For users missing firstName/lastName, pull from their linked Donor record
+    const enriched = await Promise.all(users.map(async (u) => {
+      if (!u.firstName && !u.lastName && u.donorId) {
+        const donor = await Donor.findById(u.donorId, 'firstName lastName').lean();
+        if (donor) {
+          u.firstName = donor.firstName || '';
+          u.lastName  = donor.lastName  || '';
+          // Backfill the User document so it's correct next time
+          await User.findByIdAndUpdate(u._id, { firstName: u.firstName, lastName: u.lastName });
+        }
+      }
+      // Also try matching by mobile if still missing
+      if (!u.firstName && !u.lastName && u.mobile) {
+        const donor = await Donor.findOne({ phone: u.mobile }, 'firstName lastName').lean();
+        if (donor) {
+          u.firstName = donor.firstName || '';
+          u.lastName  = donor.lastName  || '';
+          await User.findByIdAndUpdate(u._id, { firstName: u.firstName, lastName: u.lastName });
+        }
+      }
+      return u;
+    }));
+
+    res.json({ success: true, data: enriched });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
@@ -1554,13 +1589,14 @@ app.post('/api/users', authenticate, adminOnly, async (req, res) => {
       username: uname, password: hashedPwd,
       mobile: mob, bloodType, role: 'user',
       email: email.trim().toLowerCase(),
+      firstName: firstName.trim(), lastName: lastName.trim(),
       isAvailable: true, donorId,
     });
 
     res.status(201).json({
       success: true,
       message: `User "${firstName} ${lastName}" added${donorId ? ' and registered as a donor' : ''}. They can log in with OTP or username/password.`,
-      data: { _id: user._id, username: user.username, mobile: user.mobile, role: user.role, bloodType: user.bloodType || '', createdAt: user.createdAt }
+      data: { _id: user._id, username: user.username, firstName: user.firstName || '', lastName: user.lastName || '', mobile: user.mobile, role: user.role, bloodType: user.bloodType || '', createdAt: user.createdAt }
     });
   } catch(err) {
     if (err.code === 11000) {
@@ -1623,7 +1659,7 @@ app.put('/api/users/:id', authenticate, adminOnly, async (req, res) => {
       await Donor.findByIdAndUpdate(user.donorId, donorUpdate).catch(() => {});
     }
 
-    res.json({ success: true, message: `User "${user.username}" updated.`, data: { _id: user._id, username: user.username, mobile: user.mobile || '', role: user.role, bloodType: user.bloodType || '', createdAt: user.createdAt } });
+    res.json({ success: true, message: `User "${user.username}" updated.`, data: { _id: user._id, username: user.username, firstName: user.firstName || '', lastName: user.lastName || '', mobile: user.mobile || '', role: user.role, bloodType: user.bloodType || '', createdAt: user.createdAt } });
   } catch(err) {
     if (err.code === 11000) {
       const field = Object.keys(err.keyPattern || {})[0] || 'field';
@@ -1638,9 +1674,31 @@ app.delete('/api/users/:id', authenticate, adminOnly, async (req, res) => {
   try {
     if (req.params.id === req.user.id)
       return res.status(400).json({ success: false, error: 'You cannot delete your own account.' });
-    const user = await User.findByIdAndDelete(req.params.id);
+
+    const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
-    res.json({ success: true, message: `User "${user.username}" deleted.` });
+
+    // Delete linked donor record (matched by donorId or mobile/phone)
+    let donorDeleted = false;
+    const linkedDonor = await Donor.findOne({
+      $or: [
+        ...(user.donorId ? [{ _id: user.donorId }] : []),
+        ...(user.mobile  ? [{ phone: user.mobile }] : []),
+      ]
+    });
+    if (linkedDonor) {
+      await Donor.findByIdAndDelete(linkedDonor._id);
+      donorDeleted = true;
+      console.log(`🗑 Donor record deleted along with user: ${user.username} (donor: ${linkedDonor.firstName} ${linkedDonor.lastName})`);
+    }
+
+    await User.findByIdAndDelete(user._id);
+
+    const message = donorDeleted
+      ? `User "${user.username}" and their donor record deleted.`
+      : `User "${user.username}" deleted.`;
+
+    res.json({ success: true, message });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
@@ -1770,6 +1828,22 @@ app.get('/api/auth/profile', authenticate, async (req, res) => {
   try {
     const user = await User.findById(req.user.id, '-password').lean();
     if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
+
+    // Backfill firstName/lastName from linked Donor if missing on User doc
+    if (!user.firstName && !user.lastName) {
+      const donor = user.donorId
+        ? await Donor.findById(user.donorId, 'firstName lastName').lean()
+        : user.mobile
+          ? await Donor.findOne({ phone: user.mobile }, 'firstName lastName').lean()
+          : null;
+      if (donor) {
+        user.firstName = donor.firstName || '';
+        user.lastName  = donor.lastName  || '';
+        // Persist so future calls don't need to look up the donor
+        await User.findByIdAndUpdate(user._id, { firstName: user.firstName, lastName: user.lastName });
+      }
+    }
+
     res.json({ success: true, user });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
@@ -1777,7 +1851,7 @@ app.get('/api/auth/profile', authenticate, async (req, res) => {
 // PUT /api/auth/profile — update own profile (username, email, bloodType + donor fields)
 app.put('/api/auth/profile', authenticate, async (req, res) => {
   try {
-    const { username, email, bloodType, gender, dateOfBirth, isAvailable, address, lastDonationDate } = req.body;
+    const { firstName, lastName, username, email, bloodType, gender, dateOfBirth, isAvailable, address, lastDonationDate } = req.body;
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
 
@@ -1805,6 +1879,9 @@ app.put('/api/auth/profile', authenticate, async (req, res) => {
       user.email = newEmail;
     }
 
+    if (firstName !== undefined && firstName.trim()) user.firstName = firstName.trim();
+    if (lastName !== undefined && lastName.trim())   user.lastName  = lastName.trim();
+
     if (bloodType !== undefined)      user.bloodType        = bloodType ? bloodType.trim() : '';
     if (gender !== undefined)         user.gender           = gender || '';
     if (dateOfBirth !== undefined)    user.dateOfBirth      = dateOfBirth ? new Date(dateOfBirth) : null;
@@ -1817,6 +1894,8 @@ app.put('/api/auth/profile', authenticate, async (req, res) => {
     // Sync linked donor record if exists
     if (user.donorId) {
       const donorUpdate = {};
+      if (firstName !== undefined && firstName.trim()) donorUpdate.firstName = user.firstName;
+      if (lastName !== undefined && lastName.trim())   donorUpdate.lastName  = user.lastName;
       if (bloodType !== undefined)       donorUpdate.bloodType        = user.bloodType;
       if (gender !== undefined)          donorUpdate.gender           = user.gender;
       if (dateOfBirth !== undefined)     donorUpdate.dateOfBirth      = user.dateOfBirth;
@@ -1830,6 +1909,8 @@ app.put('/api/auth/profile', authenticate, async (req, res) => {
 
     // Return updated user (no password)
     const updated = {
+      firstName:        user.firstName || '',
+      lastName:         user.lastName  || '',
       username:         user.username,
       email:            user.email,
       role:             user.role,

@@ -60,5 +60,15 @@ function showPage(page, btn){
   if(page==='info') loadInfo();
   if(page==='users') loadUsers();
   if(page==='profile') loadProfile();
+  if(page==='security') {
+    const sucEl = document.getElementById('cp-success');
+    const errEl = document.getElementById('cp-error');
+    const newEl = document.getElementById('cp-new');
+    const conEl = document.getElementById('cp-confirm');
+    if(sucEl) { sucEl.textContent=''; sucEl.style.display='none'; }
+    if(errEl) { errEl.textContent=''; errEl.classList.remove('show'); errEl.style.display='none'; }
+    if(newEl) newEl.value='';
+    if(conEl) conEl.value='';
+  }
   closeSidebarMobile(); // close on mobile after nav
 }

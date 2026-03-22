@@ -127,11 +127,16 @@ async function sendOTP() {
   const btn    = document.getElementById('otp-send-btn');
   _clearOTPError();
   if (!/^[6-9]\d{9}$/.test(mobile)) { _showOTPError('Please enter a valid 10-digit Indian mobile number.'); return; }
-  btn.disabled = true; btn.textContent = 'Sending…';
+  btn.disabled = true; btn.textContent = 'Checking…';
   try {
     const res  = await fetch(API + '/auth/otp/send', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({mobile}) });
     const data = await res.json();
     if (data.success) {
+      // Block login if this mobile has no registered account
+      if (!data.isExistingUser && !data.isExistingDonor) {
+        _showOTPError('No account found for this mobile number. Please register first.');
+        btn.disabled = false; btn.textContent = '📲 Sign In with OTP'; return;
+      }
       otpMobile = mobile; otpIsExistingUser = !!data.isExistingUser; otpIsExistingDonor = !!data.isExistingDonor;
       document.getElementById('otp-mobile-display').textContent = '+91 ' + mobile;
       _showOTPStep('step-otp'); _startOTPTimer();
@@ -176,9 +181,15 @@ function openRegisterForm() {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   // (availability is asked via popup after login)
-  // Hide OTP code row and verify btn
+  // Hide OTP code row and fully reset verify btn
   const otpRow = document.getElementById('reg-otp-code-row'); if (otpRow) otpRow.style.display = 'none';
-  const verBtn = document.getElementById('reg-mobile-verify-btn'); if (verBtn) verBtn.style.display = 'none';
+  const verBtn = document.getElementById('reg-mobile-verify-btn');
+  if (verBtn) {
+    verBtn.style.display = 'none';
+    verBtn.textContent = '✅ Verify';
+    verBtn.style.background = 'var(--red)';
+    verBtn.disabled = false;
+  }
   // Reset Send OTP button
   const sendBtn = document.getElementById('reg-send-otp-btn');
   if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '📲 Send OTP'; }
@@ -198,7 +209,7 @@ async function sendRegOTP() {
   if (!/^[6-9]\d{9}$/.test(mobile)) { _showOTPError('Please enter a valid 10-digit mobile number.'); return; }
   sendBtn.disabled = true; sendBtn.textContent = 'Sending…';
   try {
-    const res  = await fetch(API + '/auth/otp/send', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({mobile}) });
+    const res  = await fetch(API + '/auth/otp/send', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({mobile, purpose: 'register'}) });
     const data = await res.json();
     if (data.success) {
       if (data.isExistingUser) {
@@ -263,6 +274,7 @@ async function doOTPRegister() {
       clearRegOtpTimer();
       authToken = data.token; currentUser = data.user;
       persistSession(authToken, currentUser);
+      sessionStorage.setItem('hs_new_registration', '1');
       launchApp();
       showToast(`Welcome, ${firstName}! You are now registered as a donor. 🩸`, 'success');
     } else { _showOTPError(data.error || 'Registration failed.'); }
@@ -275,6 +287,22 @@ function _showOTPStep(stepId) {
   ['step-mobile','step-otp','step-register'].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = id === stepId ? '' : 'none';
   });
+  // Back to Login button — only on step-otp
+  const existingBack = document.getElementById('otp-step-back-btn');
+  if (existingBack) existingBack.remove();
+  if (stepId === 'step-otp') {
+    const backBtn = document.createElement('button');
+    backBtn.id = 'otp-step-back-btn';
+    backBtn.textContent = '← Back to Login';
+    backBtn.onclick = () => { clearOTPTimer(); resetOTPFlow(); };
+    Object.assign(backBtn.style, {
+      width: '100%', marginTop: '12px', padding: '10px',
+      background: 'none', border: '1.5px solid var(--border)',
+      borderRadius: '10px', color: 'var(--text2)',
+      fontFamily: 'var(--font-ui)', fontSize: '0.85rem', cursor: 'pointer'
+    });
+    document.getElementById('step-otp')?.appendChild(backBtn);
+  }
 }
 function _showOTPError(msg) { const el = document.getElementById('otp-error'); if (el) { el.textContent = msg; el.classList.add('show'); } }
 function _clearOTPError()   { const el = document.getElementById('otp-error'); if (el) el.classList.remove('show'); }
@@ -516,3 +544,67 @@ function openSidebarMobile(){document.getElementById('sidebar').classList.add('m
 function closeSidebarMobile(){document.getElementById('sidebar').classList.remove('mobile-open');document.getElementById('sidebar-overlay').classList.remove('active');document.body.style.overflow='';}
 function isMobile(){return window.innerWidth<=768;}
 (function restoreSidebar(){try{if(localStorage.getItem('sb_collapsed')==='1'){sidebarCollapsed=true;document.getElementById('sidebar')?.classList.add('collapsed');const m=document.querySelector('.main');if(m)m.style.marginLeft='var(--sidebar-collapsed-w)';}  }catch(e){}})();
+
+// ── NEW USER PASSWORD BANNER ──────────────────────────────────
+// Patches launchApp to show a one-time banner for newly registered users.
+(function () {
+  const _origLaunchApp = launchApp;
+  launchApp = function () {
+    _origLaunchApp.apply(this, arguments);
+    _maybeShowNewUserBanner();
+  };
+})();
+
+function _maybeShowNewUserBanner() {
+  if (sessionStorage.getItem('hs_new_registration') !== '1') return;
+  sessionStorage.removeItem('hs_new_registration'); // consume immediately — one-time only
+
+  document.getElementById('new-user-pwd-banner')?.remove();
+
+  const banner = document.createElement('div');
+  banner.id = 'new-user-pwd-banner';
+  banner.innerHTML = `
+    <div style="display:flex;align-items:flex-start;gap:14px;flex:1;min-width:0">
+      <div style="font-size:1.6rem;line-height:1;flex-shrink:0;margin-top:2px">🔐</div>
+      <div style="min-width:0">
+        <div style="font-family:var(--font-ui);font-weight:700;font-size:0.95rem;color:#fff;margin-bottom:3px">Set up your password</div>
+        <div style="font-size:0.82rem;color:rgba(255,255,255,0.82);line-height:1.45">
+          You're signed in with OTP. Create a password so you can sign in with your username anytime — no OTP needed.
+        </div>
+        <button
+          onclick="showPage('security', document.getElementById('nav-security')); document.getElementById('new-user-pwd-banner')?.remove();"
+          style="margin-top:10px;background:rgba(255,255,255,0.18);border:1.5px solid rgba(255,255,255,0.4);color:#fff;font-family:var(--font-ui);font-size:0.8rem;font-weight:700;padding:6px 16px;border-radius:8px;cursor:pointer;transition:background .2s"
+          onmouseover="this.style.background='rgba(255,255,255,0.28)'" onmouseout="this.style.background='rgba(255,255,255,0.18)'"
+        >Create Password →</button>
+      </div>
+    </div>
+    <button
+      onclick="document.getElementById('new-user-pwd-banner').remove()"
+      aria-label="Dismiss"
+      style="flex-shrink:0;background:transparent;border:none;color:rgba(255,255,255,0.6);font-size:1.25rem;cursor:pointer;line-height:1;padding:2px 4px;margin-top:-2px;transition:color .2s"
+      onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,0.6)'"
+    >✕</button>
+  `;
+  Object.assign(banner.style, {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: '12px',
+    background: 'linear-gradient(135deg,#1e3a5f 0%,#1d4ed8 100%)',
+    borderRadius: 'var(--radius, 12px)',
+    padding: '18px 20px',
+    marginBottom: '18px',
+    boxShadow: '0 6px 24px rgba(29,78,216,0.32)',
+    animation: 'fadeUp .4s ease both',
+    border: '1px solid rgba(255,255,255,0.12)',
+    boxSizing: 'border-box'
+  });
+
+  // Insert right after the .page-header of the dashboard
+  const pageHeader = document.querySelector('#page-dashboard .page-header');
+  if (pageHeader) {
+    pageHeader.insertAdjacentElement('afterend', banner);
+  } else {
+    document.getElementById('page-dashboard')?.prepend(banner);
+  }
+}
