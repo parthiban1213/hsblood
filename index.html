@@ -154,59 +154,285 @@
         <p><strong>Smart Access</strong>Access what you need to get things done</p>
       </div>
 
+      <!-- Shared error banner -->
       <div class="login-error" id="login-error" data-testid="login-error"></div>
 
-      <div class="login-form-group">
-        <label>Username</label>
-        <div class="login-input-wrap">
-          <span class="input-icon">👤</span>
-          <input type="text" id="login-username" placeholder="Enter your username" autocomplete="username"/>
+      <!-- ══ ADMIN LOGIN FORM ══ -->
+      <div id="admin-login-form">
+        <div class="login-form-group">
+          <label>Username</label>
+          <div class="login-input-wrap">
+            <span class="input-icon">👤</span>
+            <input type="text" id="login-username" placeholder="Enter your username" autocomplete="username"/>
+          </div>
         </div>
-      </div>
-      <div class="login-form-group">
-        <label>Password</label>
-        <div class="login-input-wrap">
-          <span class="input-icon">🔒</span>
-          <input type="password" id="login-password" placeholder="Enter your password" autocomplete="current-password"
-            onkeydown="if(event.key==='Enter')doLogin()"/>
+        <div class="login-form-group">
+          <label>Password</label>
+          <div class="login-input-wrap">
+            <span class="input-icon">🔒</span>
+            <input type="password" id="login-password" placeholder="Enter your password" autocomplete="current-password"
+              onkeydown="if(event.key==='Enter')doLogin()"/>
+          </div>
         </div>
-      </div>
-
-      <button class="login-btn" id="login-btn" onclick="doLogin()">Sign In →</button>
-
-      <!-- Forgot Password — visible only on HS Employee tab -->
-      <div id="forgot-password-section" style="text-align:center;margin-top:10px;display:block">
-        <a id="forgot-password-link" href="#" onclick="openForgotPasswordModal();return false;"
-          style="font-size:0.78rem;color:var(--text2);text-decoration:none;font-family:var(--font-ui);transition:color .15s"
-          onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text2)'">
-          🔑 Forgot Password?
-        </a>
+        <button class="login-btn" id="login-btn" onclick="doLogin()">Sign In →</button>
       </div>
 
-      <!-- Sign Up link — visible only on HS Employee tab -->
-      <div id="signup-section" style="display:block">
-        <div class="signup-divider">
-          <hr/><span>New here?</span><hr/>
+      <!-- ══ HS EMPLOYEE OTP FORM ══ -->
+      <div id="user-otp-form" style="display:none">
+
+        <!-- OTP shared error -->
+        <div class="login-error" id="otp-error" data-testid="otp-error"></div>
+
+        <!-- STEP 1: Enter mobile -->
+        <div id="step-mobile">
+
+          <!-- OTP login section -->
+          <div id="otp-login-section">
+            <div class="login-form-group">
+              <label>Mobile Number</label>
+              <div class="login-input-wrap">
+                <span class="input-icon">📱</span>
+                <input type="tel" id="otp-mobile" placeholder="10-digit mobile number"
+                  maxlength="10" autocomplete="tel"
+                  onkeydown="if(event.key==='Enter')sendOTP()"
+                  style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s"/>
+              </div>
+              <p style="font-size:0.72rem;color:var(--text3);margin-top:5px;font-family:var(--font-ui)">
+                Already registered? Enter your mobile number and sign in with OTP.
+              </p>
+            </div>
+            <button class="login-btn" id="otp-send-btn" onclick="sendOTP()">📲 Sign In with OTP</button>
+
+            <div class="signup-divider" style="margin:14px 0 12px">
+              <hr/><span>or</span><hr/>
+            </div>
+            <button onclick="showUserPwdLogin()" id="user-pwd-toggle-btn"
+              style="width:100%;padding:10px;background:none;border:1.5px solid var(--border);border-radius:10px;color:var(--text2);font-family:var(--font-ui);font-size:0.85rem;cursor:pointer">
+              🔑 Sign In with Username &amp; Password
+            </button>
+
+            <div class="signup-divider" style="margin:18px 0 14px">
+              <hr/><span>New here?</span><hr/>
+            </div>
+            <button class="signup-btn" id="open-register-btn" onclick="openRegisterForm()">✨ Register as HS Employee</button>
+          </div>
+
+          <!-- Username/Password login section (hidden by default) -->
+          <div id="user-pwd-login-wrap" style="display:none">
+            <button onclick="showOTPLogin()"
+              style="display:inline-flex;align-items:center;gap:6px;background:none;border:none;color:var(--red);font-family:var(--font-ui);font-size:0.82rem;font-weight:600;cursor:pointer;padding:0;margin-bottom:16px">
+              ← Back to OTP Login
+            </button>
+
+            <!-- Sign-in fields (hidden when forgot-password is open) -->
+            <div id="user-pwd-signin-fields">
+              <div class="login-form-group">
+                <label>Username</label>
+                <div class="login-input-wrap">
+                  <span class="input-icon">👤</span>
+                  <input type="text" id="user-login-username" placeholder="Your username" autocomplete="username"
+                    style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none"/>
+                </div>
+              </div>
+              <div class="login-form-group">
+                <label>Password</label>
+                <div class="login-input-wrap">
+                  <span class="input-icon">🔒</span>
+                  <input type="password" id="user-login-password" placeholder="Your password" autocomplete="current-password"
+                    onkeydown="if(event.key==='Enter')doUserPwdLogin()"
+                    style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none"/>
+                </div>
+              </div>
+              <button class="login-btn" id="user-pwd-login-btn" onclick="doUserPwdLogin()">Sign In →</button>
+              <div style="text-align:center;margin-top:10px">
+                <button onclick="toggleForgotPassword()" id="forgot-pwd-link"
+                  style="background:none;border:none;color:var(--text2);font-family:var(--font-ui);font-size:0.78rem;cursor:pointer;text-decoration:underline">
+                  🔑 Forgot Password?
+                </button>
+              </div>
+            </div>
+
+            <div id="forgot-pwd-panel" style="display:none;margin-top:14px;background:var(--bg3);border:1.5px solid var(--border);border-radius:12px;padding:16px">
+              <p style="font-size:0.75rem;font-family:var(--font-ui);color:var(--text2);margin-bottom:12px;line-height:1.5">
+                <strong style="color:var(--text)">Reset Password</strong><br/>
+                Enter your username and the email address linked to your account.
+              </p>
+              <div class="login-error" id="fp-error" style="margin-bottom:10px"></div>
+              <div class="login-error" id="fp-success" style="background:#EDFBF3;border-color:#BBF7D0;color:#15803D;margin-bottom:10px;display:none"></div>
+              <div class="login-form-group" style="margin-bottom:10px">
+                <div class="login-input-wrap">
+                  <span class="input-icon">👤</span>
+                  <input type="text" id="fp-username" placeholder="Username" autocomplete="off"
+                    style="width:100%;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:10px 14px 10px 40px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+                </div>
+              </div>
+              <div class="login-form-group" style="margin-bottom:10px">
+                <div class="login-input-wrap">
+                  <span class="input-icon">✉️</span>
+                  <input type="email" id="fp-email" placeholder="Email address" autocomplete="email"
+                    style="width:100%;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:10px 14px 10px 40px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+                </div>
+              </div>
+              <div class="login-form-group" style="margin-bottom:10px">
+                <div class="login-input-wrap">
+                  <span class="input-icon">🔒</span>
+                  <input type="password" id="fp-new-password" placeholder="New password (min. 6 chars)"
+                    style="width:100%;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:10px 14px 10px 40px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+                </div>
+              </div>
+              <div class="login-form-group" style="margin-bottom:12px">
+                <div class="login-input-wrap">
+                  <span class="input-icon">🔒</span>
+                  <input type="password" id="fp-confirm-password" placeholder="Confirm new password"
+                    onkeydown="if(event.key==='Enter')doForgotPassword()"
+                    style="width:100%;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:10px 14px 10px 40px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+                </div>
+              </div>
+              <button id="fp-btn" onclick="doForgotPassword()"
+                style="width:100%;padding:10px;background:var(--red);color:#fff;border:none;border-radius:10px;font-family:var(--font-ui);font-size:0.88rem;font-weight:600;cursor:pointer">
+                🔑 Reset Password
+              </button>
+            </div>
+          </div>
+
         </div>
-        <button id="signup-open-btn" class="signup-btn" onclick="openSignupModal()">✨ Create HS Employee Account</button>
+
+        <!-- STEP 2: Enter OTP -->
+        <div id="step-otp" style="display:none">
+          <div style="text-align:center;margin-bottom:16px;padding:14px;background:var(--red-light);border-radius:12px;border:1px solid rgba(200,16,46,0.12)">
+            <p style="font-size:0.8rem;color:var(--text2);font-family:var(--font-ui)">OTP sent to</p>
+            <p id="otp-mobile-display" style="font-size:1.1rem;font-weight:700;color:var(--text);font-family:var(--font-display)"></p>
+            <button onclick="changeOTPMobile()" style="font-size:0.72rem;color:var(--red);background:none;border:none;cursor:pointer;font-family:var(--font-ui);margin-top:2px">✏️ Change number</button>
+          </div>
+          <div class="login-form-group">
+            <label>Enter OTP</label>
+            <div class="login-input-wrap">
+              <span class="input-icon">🔐</span>
+              <input type="text" id="otp-code" placeholder="6-digit OTP"
+                maxlength="6" autocomplete="one-time-code"
+                onkeydown="if(event.key==='Enter')verifyOTP()"
+                style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:1.1rem;letter-spacing:0.25em;outline:none;transition:border-color .17s"/>
+            </div>
+          </div>
+          <button class="login-btn" id="otp-verify-btn" onclick="verifyOTP()">✅ Verify OTP</button>
+          <div style="text-align:center;margin-top:10px">
+            <span id="otp-resend-timer" style="font-size:0.78rem;color:var(--text3);font-family:var(--font-ui)"></span>
+            <button id="otp-resend-btn" onclick="resendOTP()" style="display:none;font-size:0.78rem;color:var(--red);background:none;border:none;cursor:pointer;font-family:var(--font-ui)">🔄 Resend OTP</button>
+          </div>
+        </div>
+
+        <!-- STEP 3: Registration form -->
+        <div id="step-register" style="display:none">
+
+          <div style="background:var(--red-light);border:1px solid rgba(200,16,46,0.15);border-radius:10px;padding:13px 15px;margin-bottom:16px">
+            <p style="font-family:var(--font-ui);font-size:0.76rem;color:var(--text2);line-height:1.5">
+              <strong style="color:var(--red);display:block;margin-bottom:3px">🩸 New HS Employee Registration</strong>
+              Complete your details to create an account and join the donor registry.
+            </p>
+          </div>
+
+          <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:10px">
+
+            <!-- Mobile + OTP row -->
+            <div class="form-group" style="grid-column:1/-1">
+              <label>Mobile Number * <span style="color:var(--text3);font-weight:400">(used for OTP login)</span></label>
+              <div style="display:flex;gap:8px">
+                <div class="login-input-wrap" style="flex:1">
+                  <span class="input-icon">📱</span>
+                  <input type="tel" id="reg-mobile-input" placeholder="10-digit mobile number" maxlength="10"
+                    style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px 10px 40px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+                </div>
+                <button id="reg-send-otp-btn" onclick="sendRegOTP()"
+                  style="padding:10px 14px;background:var(--red);color:#fff;border:none;border-radius:10px;font-family:var(--font-ui);font-size:0.8rem;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0">
+                  📲 Send OTP
+                </button>
+              </div>
+              <div style="margin-top:5px;min-height:18px">
+                <span id="reg-otp-timer" style="font-size:0.72rem;color:var(--text3);font-family:var(--font-ui);display:none"></span>
+              </div>
+            </div>
+
+            <!-- OTP code -->
+            <div class="form-group" id="reg-otp-code-row" style="grid-column:1/-1;display:none">
+              <label>Enter OTP *</label>
+              <div style="display:flex;gap:8px">
+                <div class="login-input-wrap" style="flex:1">
+                  <span class="input-icon">🔐</span>
+                  <input type="text" id="reg-otp-code" placeholder="6-digit OTP" maxlength="6"
+                    style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px 10px 40px;color:var(--text);font-family:var(--font-body);font-size:1rem;letter-spacing:0.25em;outline:none"/>
+                </div>
+                <button id="reg-mobile-verify-btn" onclick="verifyRegOTP()"
+                  style="padding:10px 14px;background:var(--red);color:#fff;border:none;border-radius:10px;font-family:var(--font-ui);font-size:0.8rem;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0">
+                  ✅ Verify
+                </button>
+              </div>
+            </div>
+
+            <!-- Username -->
+            <div class="form-group" style="grid-column:1/-1">
+              <label>Username * <span style="color:var(--text3);font-weight:400">(min. 3 characters)</span></label>
+              <div class="login-input-wrap">
+                <span class="input-icon">👤</span>
+                <input type="text" id="reg-username-new" placeholder="Choose a username" autocomplete="off"
+                  style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px 10px 40px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>First Name *</label>
+              <input type="text" id="reg-firstName" placeholder="First name"
+                style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+            </div>
+            <div class="form-group">
+              <label>Last Name *</label>
+              <input type="text" id="reg-lastName" placeholder="Last name"
+                style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+            </div>
+            <div class="form-group" style="grid-column:1/-1">
+              <label>Blood Type *</label>
+              <select id="reg-bloodtype-new"
+                style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;cursor:pointer">
+                <option value="">— Select —</option>
+                <option value="A+">A+</option><option value="A-">A-</option>
+                <option value="B+">B+</option><option value="B-">B-</option>
+                <option value="AB+">AB+</option><option value="AB-">AB-</option>
+                <option value="O+">O+</option><option value="O-">O-</option>
+              </select>
+            </div>
+            <div class="form-group" style="grid-column:1/-1">
+              <label>Email Address *</label>
+              <input type="email" id="reg-email-new" placeholder="you@example.com"
+                style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+            </div>
+            <div class="form-group" style="grid-column:1/-1">
+              <label>Address <span style="color:var(--text3);font-weight:400">(optional)</span></label>
+              <input type="text" id="reg-address" placeholder="Your address"
+                style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+            </div>
+            <div class="form-group" style="grid-column:1/-1">
+              <label>Last Donation Date <span style="color:var(--text3);font-weight:400">(optional)</span></label>
+              <input type="date" id="reg-lastDonation"
+                style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+            </div>
+          </div>
+
+          <button class="login-btn" id="reg-submit-btn" onclick="doOTPRegister()" style="margin-top:14px">✨ Complete Registration</button>
+          <button onclick="backFromRegister()" style="width:100%;margin-top:8px;padding:10px;background:none;border:1.5px solid var(--border);border-radius:10px;color:var(--text2);font-family:var(--font-ui);font-size:0.85rem;cursor:pointer">← Back to Login</button>
+        </div>
+
+      </div><!-- /user-otp-form -->
+
+      <!-- Hidden signup section (legacy; unused) -->
+      <div id="signup-section" style="display:none"></div>
+
+      <!-- Contact Support -->
+      <div style="text-align:center;margin-top:20px;padding-top:16px;border-top:1px solid var(--border2)">
+        <button onclick="openModal('contact-support-modal')"
+          style="background:none;border:none;color:var(--text3);font-family:var(--font-ui);font-size:0.78rem;cursor:pointer;display:inline-flex;align-items:center;gap:5px">
+          💬 Contact Support
+        </button>
       </div>
 
-      <!-- Quick-fill credentials hint -->
-      <!-- <div class="login-divider">
-        <hr/><span>Default credentials</span><hr/>
-      </div> -->
-      <!-- <div class="login-creds">
-        <div id="demo-cred-admin" class="login-cred-card" onclick="fillCreds('admin','admin123','admin')">
-          <div class="cc-role">🛡️ Admin</div>
-          <div class="cc-name">admin</div>
-          <div class="cc-pass">admin123</div>
-        </div>
-        <div id="demo-cred-user" class="login-cred-card" onclick="fillCreds('user','user123','user')">
-          <div class="cc-role">👤 User</div>
-          <div class="cc-name">user</div>
-          <div class="cc-pass">user123</div>
-        </div>
-      </div> -->
     </div>
   </div>
 
@@ -215,6 +441,51 @@
 <!-- ════════════════════════════════════════
      MAIN APP
 ════════════════════════════════════════ -->
+<div class="modal-overlay" id="contact-support-modal" style="z-index:9500">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-header">
+      <h3>💬 Contact Support</h3>
+      <button class="modal-close" onclick="closeModal('contact-support-modal')">✕</button>
+    </div>
+    <div style="background:var(--red-light);border:1px solid rgba(200,16,46,0.15);border-radius:10px;padding:12px 15px;margin-bottom:16px">
+      <p style="font-family:var(--font-ui);font-size:0.76rem;color:var(--text2);line-height:1.5">
+        Having trouble logging in or need help? Send a message to our support team and we'll get back to you.
+      </p>
+    </div>
+    <div class="login-error" id="cs-error" style="margin-bottom:10px"></div>
+    <div class="form-grid" style="grid-template-columns:1fr;gap:12px">
+      <div class="form-group">
+        <label>Your Name *</label>
+        <input type="text" id="cs-name" placeholder="Your full name"
+          style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+      </div>
+      <div class="form-group">
+        <label>Your Email *</label>
+        <input type="email" id="cs-email" placeholder="your@email.com"
+          style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+      </div>
+      <div class="form-group">
+        <label>Subject *</label>
+        <input type="text" id="cs-subject" placeholder="e.g. Cannot log in to my account"
+          style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+      </div>
+      <div class="form-group">
+        <label>Message *</label>
+        <textarea id="cs-message" placeholder="Describe your issue in detail…" rows="4"
+          style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;resize:vertical"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Attachment <span style="color:var(--text3);font-weight:400">(optional — screenshot or file)</span></label>
+        <input type="file" id="cs-attachment" accept="image/*,.pdf,.doc,.docx,.txt"
+          style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:9px 14px;color:var(--text);font-family:var(--font-body);font-size:0.85rem;outline:none;cursor:pointer"/>
+      </div>
+    </div>
+    <div class="modal-footer" style="margin-top:16px">
+      <button class="btn btn-outline" onclick="closeModal('contact-support-modal')">Cancel</button>
+      <button class="btn btn-primary" id="cs-send-btn" onclick="sendContactSupport()">📧 Send Message</button>
+    </div>
+  </div>
+</div>
 <div id="app" data-testid="app-root">
   <!-- Mobile hamburger -->
   <button class="hamburger" id="hamburger-btn" onclick="openSidebarMobile()" aria-label="Open menu">☰</button>
@@ -536,15 +807,6 @@
           <div class="login-error" id="cp-success" data-testid="cp-success" style="background:#EDFBF3;border-color:#BBF7D0;color:#15803D;display:none"></div>
 
           <div class="form-group" style="margin-bottom:14px">
-            <label style="font-size:0.8rem;font-weight:600;color:var(--text2);margin-bottom:5px;display:block">Current Password *</label>
-            <div class="login-input-wrap">
-              <span class="input-icon">🔓</span>
-              <input type="password" id="cp-current" placeholder="Enter current password"
-                style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;transition:border-color .17s,box-shadow .17s"
-                autocomplete="current-password"/>
-            </div>
-          </div>
-          <div class="form-group" style="margin-bottom:14px">
             <label style="font-size:0.8rem;font-weight:600;color:var(--text2);margin-bottom:5px;display:block">New Password *</label>
             <div class="login-input-wrap">
               <span class="input-icon">🔒</span>
@@ -630,6 +892,7 @@
             <div id="profile-display-name" style="font-family:var(--font-display);font-size:1.4rem;font-weight:700;color:var(--text)">—</div>
             <div id="profile-display-role" style="font-size:0.8rem;color:var(--text2);margin-top:3px;font-family:var(--font-ui)">—</div>
             <div id="profile-display-bloodtype" style="margin-top:6px"></div>
+            <div id="profile-donor-badge" style="margin-top:6px;display:none"></div>
           </div>
         </div>
 
@@ -637,7 +900,8 @@
         <div id="profile-error" style="display:none;background:#FEF2F2;border:1.5px solid #FECACA;border-radius:10px;padding:11px 14px;font-size:0.82rem;color:#DC2626;font-family:var(--font-ui);margin-bottom:14px"></div>
         <div id="profile-success" style="display:none;background:#EDFBF4;border:1.5px solid #BBF7D0;border-radius:10px;padding:11px 14px;font-size:0.82rem;color:#15803D;font-family:var(--font-ui);margin-bottom:14px"></div>
 
-        <!-- Form fields -->
+        <!-- Section: Account -->
+        <div style="font-family:var(--font-ui);font-size:0.72rem;font-weight:700;color:var(--text3);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border2)">Account Details</div>
         <div class="profile-field-row">
           <div class="form-group">
             <label>Username</label>
@@ -652,16 +916,114 @@
               style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
           </div>
         </div>
+
+        <!-- Section: Donor Info -->
+        <div style="font-family:var(--font-ui);font-size:0.72rem;font-weight:700;color:var(--text3);letter-spacing:0.08em;text-transform:uppercase;margin:18px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--border2)">🩸 Donor Information</div>
+
+        <div class="profile-field-row">
+          <div class="form-group">
+            <label>Mobile Number <span style="font-size:0.7rem;color:var(--text3);font-weight:400">(used for OTP login)</span></label>
+            <!-- Display row: shows current mobile + change button -->
+            <div id="profile-mobile-display-row" style="display:flex;align-items:center;gap:8px">
+              <div class="login-input-wrap" style="flex:1">
+                <span class="input-icon">📱</span>
+                <input type="tel" id="profile-mobile" data-testid="profile-mobile"
+                  placeholder="Not set" readonly
+                  style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px 10px 40px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;opacity:0.75;cursor:default"/>
+              </div>
+              <button onclick="openMobileUpdatePanel()" id="profile-mobile-change-btn"
+                style="padding:10px 12px;background:none;border:1.5px solid var(--border);border-radius:10px;color:var(--text2);font-family:var(--font-ui);font-size:0.78rem;cursor:pointer;white-space:nowrap;font-weight:600">
+                ✏️ Change
+              </button>
+            </div>
+            <!-- OTP update panel: hidden until Change clicked -->
+            <div id="profile-mobile-otp-panel" style="display:none;margin-top:10px;background:var(--bg3);border:1.5px solid var(--border);border-radius:12px;padding:14px">
+              <p style="font-size:0.75rem;color:var(--text2);font-family:var(--font-ui);margin-bottom:10px">Enter new mobile number and verify with OTP.</p>
+              <div style="display:flex;gap:8px;margin-bottom:8px">
+                <div class="login-input-wrap" style="flex:1">
+                  <span class="input-icon">📱</span>
+                  <input type="tel" id="profile-mobile-new" placeholder="New 10-digit mobile" maxlength="10"
+                    style="width:100%;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:9px 12px 9px 38px;color:var(--text);font-family:var(--font-body);font-size:0.85rem;outline:none"/>
+                </div>
+                <button id="profile-mobile-send-otp-btn" onclick="sendMobileUpdateOTP()"
+                  style="padding:9px 13px;background:var(--red);color:#fff;border:none;border-radius:10px;font-family:var(--font-ui);font-size:0.78rem;font-weight:600;cursor:pointer;white-space:nowrap">
+                  📲 Send OTP
+                </button>
+              </div>
+              <div id="profile-mobile-otp-row" style="display:none;margin-bottom:8px">
+                <div class="login-input-wrap">
+                  <span class="input-icon">🔐</span>
+                  <input type="text" id="profile-mobile-otp" placeholder="6-digit OTP" maxlength="6"
+                    style="width:100%;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:9px 12px 9px 38px;color:var(--text);font-family:var(--font-body);font-size:1rem;letter-spacing:0.25em;outline:none"/>
+                </div>
+                <div style="margin-top:4px">
+                  <span id="profile-mobile-otp-timer" style="font-size:0.72rem;color:var(--text3);font-family:var(--font-ui);display:none"></span>
+                </div>
+              </div>
+              <div id="profile-mobile-otp-error" style="display:none;font-size:0.78rem;color:#DC2626;font-family:var(--font-ui);margin-bottom:6px"></div>
+              <div style="display:flex;gap:8px">
+                <button id="profile-mobile-verify-btn" onclick="verifyMobileUpdateOTP()" style="display:none;flex:1;padding:9px;background:var(--red);color:#fff;border:none;border-radius:10px;font-family:var(--font-ui);font-size:0.82rem;font-weight:600;cursor:pointer">
+                  ✅ Verify &amp; Update
+                </button>
+                <button onclick="closeMobileUpdatePanel()"
+                  style="padding:9px 13px;background:none;border:1.5px solid var(--border);border-radius:10px;color:var(--text2);font-family:var(--font-ui);font-size:0.82rem;cursor:pointer">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Blood Type <span style="color:var(--text3);font-weight:400">(for notifications)</span></label>
+            <select id="profile-bloodtype" data-testid="profile-bloodtype"
+              style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;cursor:pointer">
+              <option value="">— Not specified —</option>
+              <option value="A+">A+</option><option value="A-">A-</option>
+              <option value="B+">B+</option><option value="B-">B-</option>
+              <option value="AB+">AB+</option><option value="AB-">AB-</option>
+              <option value="O+">O+</option><option value="O-">O-</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="profile-field-row">
+          <div class="form-group">
+            <label>Gender</label>
+            <select id="profile-gender" data-testid="profile-gender"
+              style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;cursor:pointer">
+              <option value="">— Not specified —</option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Date of Birth</label>
+            <input type="date" id="profile-dob" data-testid="profile-dob"
+              style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+          </div>
+        </div>
+
+        <div class="profile-field-row">
+          <div class="form-group">
+            <label>Availability Status</label>
+            <select id="profile-available" data-testid="profile-available"
+              style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;cursor:pointer">
+              <option value="true">✅ Available to Donate</option>
+              <option value="false">❌ Not Available</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Last Donation Date</label>
+            <input type="date" id="profile-lastDonation" data-testid="profile-lastDonation"
+              style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+          </div>
+        </div>
+
         <div class="form-group" style="margin-bottom:14px">
-          <label>Blood Type <span style="color:var(--text3);font-weight:400">(used for blood requirement notifications)</span></label>
-          <select id="profile-bloodtype" data-testid="profile-bloodtype"
-            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;cursor:pointer">
-            <option value="">— Not specified —</option>
-            <option value="A+">A+</option><option value="A-">A-</option>
-            <option value="B+">B+</option><option value="B-">B-</option>
-            <option value="AB+">AB+</option><option value="AB-">AB-</option>
-            <option value="O+">O+</option><option value="O-">O-</option>
-          </select>
+          <label>Address</label>
+          <input type="text" id="profile-address" data-testid="profile-address"
+            placeholder="Your address"
+            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
         </div>
 
         <div style="display:flex;gap:10px;align-items:center;padding-top:6px">
@@ -671,6 +1033,21 @@
             style="margin-left:auto;font-size:0.78rem;color:var(--text3);font-family:var(--font-ui);text-decoration:none">
             🔐 Change Password →
           </a>
+        </div>
+
+        <!-- Delete Account (HS Employee only — hidden for admin) -->
+        <div id="profile-delete-zone" style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border2);display:none">
+          <div style="font-family:var(--font-ui);font-size:0.72rem;font-weight:700;color:var(--text3);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px">⚠️ Danger Zone</div>
+          <div style="background:#FEF2F2;border:1.5px solid #FECACA;border-radius:12px;padding:16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+            <div>
+              <div style="font-family:var(--font-ui);font-weight:700;font-size:0.88rem;color:#DC2626;margin-bottom:3px">Delete My Account</div>
+              <div style="font-size:0.78rem;color:var(--text2);font-family:var(--font-ui);line-height:1.5">Permanently deletes your account and removes you from the donor list. This cannot be undone.</div>
+            </div>
+            <button onclick="confirmDeleteAccount()"
+              style="padding:9px 18px;background:#DC2626;color:#fff;border:none;border-radius:10px;font-family:var(--font-ui);font-size:0.82rem;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">
+              🗑 Delete Account
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -846,19 +1223,11 @@
       <div class="form-grid">
         <div class="form-group"><label>First Name *</label><input type="text" id="d-firstName" required placeholder="e.g. Arjun"/></div>
         <div class="form-group"><label>Last Name *</label><input type="text" id="d-lastName" required placeholder="e.g. Kumar"/></div>
-        <div class="form-group">
-          <label>Gender *</label>
-          <select id="d-gender" required>
-            <option value="">Select gender</option>
-            <option>Male</option><option>Female</option><option>Other</option>
-          </select>
-        </div>
-        <div class="form-group"><label>Date of Birth *</label><input type="date" id="d-dob" required/></div>
       </div>
       <div id="donor-section-contact" class="section-divider">Contact Details</div>
       <div class="form-grid">
         <div class="form-group"><label>Phone Number *</label><input type="tel" id="d-phone" required placeholder="+91 98765 43210"/></div>
-        <div class="form-group"><label>Email Address *</label><input type="email" id="d-email" required placeholder="arjun@email.com"/></div>
+        <div class="form-group"><label>Email Address <span style="color:var(--text3);font-weight:400">(optional)</span></label><input type="email" id="d-email" placeholder="arjun@email.com"/></div>
         <div class="form-group full"><label>Address</label><input type="text" id="d-address" placeholder="Street, City, State, Country"/></div>
       </div>
       <div id="donor-section-donation" class="section-divider">Donation Details</div>
@@ -897,53 +1266,74 @@
 <!-- ═══ BULK UPLOAD MODAL ═══ -->
 <!-- ── USER MODAL (add / edit) ── -->
 <div class="modal-overlay" id="user-modal">
-  <div class="modal" style="max-width:480px">
+  <div class="modal" style="max-width:440px">
     <div class="modal-header">
       <h3 id="user-modal-title">Add User</h3>
       <button id="user-modal-close-btn" class="modal-close" onclick="closeModal('user-modal')">✕</button>
     </div>
 
     <div class="login-error" id="um-error" data-testid="user-modal-error" style="margin-bottom:12px"></div>
-
     <input type="hidden" id="um-id"/>
 
-    <div style="display:grid;gap:14px">
-      <div>
-        <label style="font-size:0.8rem;font-weight:600;color:var(--text2);display:block;margin-bottom:5px">Username *</label>
-        <input id="um-username" type="text" placeholder="e.g. jsmith"
+    <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:12px">
+
+      <div class="form-group" style="grid-column:1/-1">
+        <label>Mobile Number * <span style="color:var(--text3);font-weight:400">(used for OTP login)</span></label>
+        <div class="login-input-wrap">
+          <span class="input-icon">📱</span>
+          <input id="um-mobile" type="tel" maxlength="10" placeholder="10-digit mobile"
+            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px 10px 40px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>First Name *</label>
+        <input id="um-firstName" type="text" placeholder="First name"
           style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
       </div>
-      <div>
-        <label style="font-size:0.8rem;font-weight:600;color:var(--text2);display:block;margin-bottom:5px">Email</label>
-        <input id="um-email" type="email" placeholder="e.g. jsmith@example.com"
+      <div class="form-group">
+        <label>Last Name *</label>
+        <input id="um-lastName" type="text" placeholder="Last name"
           style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
       </div>
-      <div>
-        <label style="font-size:0.8rem;font-weight:600;color:var(--text2);display:block;margin-bottom:5px">Role *</label>
-        <select id="um-role"
-          style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;cursor:pointer">
-          <option value="user">👤 HS Employee (user)</option>
-          <option value="admin">🛡️ Admin</option>
-        </select>
-      </div>
-      <div>
-        <label style="font-size:0.8rem;font-weight:600;color:var(--text2);display:block;margin-bottom:5px">Blood Type <span style="font-weight:400;color:var(--text3)">(for notifications)</span></label>
+
+      <div class="form-group" style="grid-column:1/-1">
+        <label>Blood Type * <span style="color:var(--text3);font-weight:400">(for notifications &amp; donor list)</span></label>
         <select id="um-bloodtype" data-testid="um-bloodtype"
           style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none;cursor:pointer">
-          <option value="">— Not specified —</option>
+          <option value="">— Select blood type —</option>
           <option value="A+">A+</option><option value="A-">A-</option>
           <option value="B+">B+</option><option value="B-">B-</option>
           <option value="AB+">AB+</option><option value="AB-">AB-</option>
           <option value="O+">O+</option><option value="O-">O-</option>
         </select>
-        <p style="font-size:0.73rem;color:var(--text3);margin-top:4px">HS Employees receive notifications only for their blood type. Admins receive all.</p>
       </div>
-      <div id="um-password-wrap">
-        <label style="font-size:0.8rem;font-weight:600;color:var(--text2);display:block;margin-bottom:5px" id="um-password-label">Password *</label>
-        <input id="um-password" type="password" placeholder="At least 6 characters"
+
+      <div class="form-group" style="grid-column:1/-1">
+        <label>Email Address *</label>
+        <input id="um-email" type="email" placeholder="e.g. jsmith@example.com"
           style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
-        <p id="um-password-hint" style="font-size:0.75rem;color:var(--text3);margin-top:4px;display:none">Leave blank to keep the current password.</p>
       </div>
+
+      <div class="form-group" style="grid-column:1/-1">
+        <label>Username * <span style="color:var(--text3);font-weight:400">(min. 3 chars — for password login)</span></label>
+        <div class="login-input-wrap">
+          <span class="input-icon">👤</span>
+          <input id="um-username" type="text" placeholder="Choose a username" autocomplete="off"
+            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px 10px 40px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+        </div>
+      </div>
+
+      <div class="form-group" style="grid-column:1/-1">
+        <label id="um-password-label">Password *</label>
+        <div class="login-input-wrap">
+          <span class="input-icon">🔒</span>
+          <input id="um-password" type="password" placeholder="At least 6 characters"
+            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px 10px 40px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+        </div>
+        <p id="um-password-hint" style="font-size:0.73rem;color:var(--text3);margin-top:4px;display:none">Leave blank to keep the current password.</p>
+      </div>
+
     </div>
 
     <div class="modal-footer">
@@ -985,15 +1375,11 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 20px">
           <p style="font-size:0.75rem;color:var(--text2)"><strong>firstName</strong> — required</p>
           <p style="font-size:0.75rem;color:var(--text2)"><strong>lastName</strong> — required</p>
-          <p style="font-size:0.75rem;color:var(--text2)"><strong>email</strong> — required, unique</p>
           <p style="font-size:0.75rem;color:var(--text2)"><strong>phone</strong> — required</p>
-          <p style="font-size:0.75rem;color:var(--text2)"><strong>dateOfBirth</strong> — required (YYYY-MM-DD)</p>
-          <p style="font-size:0.75rem;color:var(--text2)"><strong>gender</strong> — Male / Female / Other</p>
           <p style="font-size:0.75rem;color:var(--text2)"><strong>bloodType</strong> — A+, B-, AB+, O- …</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>email</strong> — optional</p>
           <p style="font-size:0.75rem;color:var(--text2)"><strong>address</strong> — optional</p>
-          <p style="font-size:0.75rem;color:var(--text2)"><strong>city</strong> — optional</p>
-          <p style="font-size:0.75rem;color:var(--text2)"><strong>country</strong> — optional</p>
-          <p style="font-size:0.75rem;color:var(--text2)"><strong>lastDonationDate</strong> — optional</p>
+          <p style="font-size:0.75rem;color:var(--text2)"><strong>lastDonationDate</strong> — optional (YYYY-MM-DD)</p>
           <p style="font-size:0.75rem;color:var(--text2)"><strong>isAvailable</strong> — true / false</p>
         </div>
       </div>
@@ -1231,149 +1617,6 @@
   </div>
 </div>
 
-<!-- ═══ REGISTRATION MODAL ═══ -->
-<div class="modal-overlay" id="signup-modal" style="z-index:9500">
-  <div class="modal" style="max-width:440px">
-    <div class="modal-header">
-      <h3>✨ Create HS Employee Account</h3>
-      <button id="signup-modal-close-btn" class="modal-close" onclick="closeModal('signup-modal')">✕</button>
-    </div>
-
-    <div id="signup-info-notice" style="background:var(--red-light);border:1px solid rgba(200,16,46,0.15);border-radius:10px;padding:13px 15px;margin-bottom:18px">
-      <p style="font-family:var(--font-ui);font-size:0.76rem;color:var(--text2);line-height:1.5">
-        <strong style="color:var(--red);display:block;margin-bottom:3px">👁️ HS Employee Access</strong>
-        As an HS Employee you can <strong>view all data</strong> and <strong>add new records</strong> (donors, requirements, directory entries), but cannot edit or delete existing records.
-      </p>
-    </div>
-
-    <div class="login-error" id="signup-error" data-testid="signup-error"></div>
-    <div class="login-error" id="signup-success" data-testid="signup-success" style="background:#EDFBF3;border-color:#BBF7D0;color:#15803D;display:none"></div>
-
-    <div class="form-grid" style="grid-template-columns:1fr">
-      <div class="form-group">
-        <label>Username *</label>
-        <div class="login-input-wrap">
-          <span class="input-icon">👤</span>
-          <input type="text" id="reg-username" placeholder="Choose a username (min. 3 chars)"
-            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
-            autocomplete="off"/>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Email Address <span style="color:var(--text3);font-weight:400">(optional — used for password recovery)</span></label>
-        <div class="login-input-wrap">
-          <span class="input-icon">✉️</span>
-          <input type="email" id="reg-email" placeholder="you@example.com"
-            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
-            autocomplete="email"/>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Password *</label>
-        <div class="login-input-wrap">
-          <span class="input-icon">🔒</span>
-          <input type="password" id="reg-password" placeholder="At least 6 characters"
-            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
-            autocomplete="new-password"/>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Confirm Password *</label>
-        <div class="login-input-wrap">
-          <span class="input-icon">🔒</span>
-          <input type="password" id="reg-confirm-password" placeholder="Re-enter your password"
-            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
-            autocomplete="new-password"/>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Your Blood Type <span style="color:var(--text3);font-weight:400">(optional — for notifications)</span></label>
-        <select id="reg-bloodtype" data-testid="reg-bloodtype"
-          style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;cursor:pointer">
-          <option value="">— Not specified —</option>
-          <option value="A+">A+</option><option value="A-">A-</option>
-          <option value="B+">B+</option><option value="B-">B-</option>
-          <option value="AB+">AB+</option><option value="AB-">AB-</option>
-          <option value="O+">O+</option><option value="O-">O-</option>
-        </select>
-        <p style="font-size:0.72rem;color:var(--text3);margin-top:4px;font-family:var(--font-ui)">
-          You will receive notifications when blood of your type is urgently needed.
-        </p>
-      </div>
-    </div>
-
-    <div class="modal-footer" style="margin-top:8px">
-      <button id="signup-modal-cancel-btn" class="btn btn-outline" onclick="closeModal('signup-modal')">Cancel</button>
-      <button class="btn btn-primary" id="register-btn" onclick="doRegister()">✨ Create Account</button>
-    </div>
-  </div>
-</div>
-
-<!-- ── FORGOT PASSWORD MODAL ──────────────────────────── -->
-<div class="modal-overlay" id="forgot-password-modal" style="z-index:9500">
-  <div class="modal" style="max-width:420px">
-    <div class="modal-header">
-      <h3>🔑 Reset Password</h3>
-      <button id="forgot-password-modal-close-btn" class="modal-close" onclick="closeModal('forgot-password-modal')">✕</button>
-    </div>
-
-    <div style="background:var(--red-light);border:1px solid rgba(200,16,46,0.15);border-radius:10px;padding:13px 15px;margin-bottom:18px">
-      <p style="font-family:var(--font-ui);font-size:0.76rem;color:var(--text2);line-height:1.5">
-        <strong style="color:var(--red);display:block;margin-bottom:3px">📧 Identity Verification</strong>
-        Enter your username and the email address linked to your account to reset your password.
-      </p>
-    </div>
-
-    <div class="login-error" id="fp-error" data-testid="fp-error"></div>
-    <div class="login-error" id="fp-success" data-testid="fp-success" style="background:#EDFBF3;border-color:#BBF7D0;color:#15803D;display:none"></div>
-
-    <div class="form-grid" style="grid-template-columns:1fr">
-      <div class="form-group">
-        <label>Username *</label>
-        <div class="login-input-wrap">
-          <span class="input-icon">👤</span>
-          <input type="text" id="fp-username" placeholder="Your username"
-            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
-            autocomplete="off"/>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Email Address *</label>
-        <div class="login-input-wrap">
-          <span class="input-icon">✉️</span>
-          <input type="email" id="fp-email" placeholder="Email linked to your account"
-            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
-            autocomplete="email"/>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>New Password *</label>
-        <div class="login-input-wrap">
-          <span class="input-icon">🔒</span>
-          <input type="password" id="fp-new-password" placeholder="At least 6 characters"
-            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
-            autocomplete="new-password"/>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Confirm New Password *</label>
-        <div class="login-input-wrap">
-          <span class="input-icon">🔒</span>
-          <input type="password" id="fp-confirm-password" placeholder="Re-enter new password"
-            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px 11px 40px;color:var(--text);font-family:var(--font-body);font-size:0.9rem;outline:none;transition:border-color .17s,box-shadow .17s"
-            autocomplete="new-password"
-            onkeydown="if(event.key==='Enter')doForgotPassword()"/>
-        </div>
-      </div>
-    </div>
-
-    <div class="modal-footer" style="margin-top:8px">
-      <button id="forgot-password-modal-cancel-btn" class="btn btn-outline" onclick="closeModal('forgot-password-modal')">Cancel</button>
-      <button class="btn btn-primary" id="fp-btn" onclick="doForgotPassword()">🔑 Reset Password</button>
-    </div>
-  </div>
-</div>
-
 <!-- ═══ EXPORT DATA MODAL ═══ -->
 <div class="modal-overlay" id="export-modal" data-testid="export-modal">
   <div class="modal" style="max-width:680px;width:95%">
@@ -1583,5 +1826,26 @@
 <script src="js/profile.js"></script>
 <script src="js/animation.js"></script>
 
+<!-- ═══ AVAILABILITY STATUS POPUP ═══ -->
+<div class="modal-overlay" id="availability-modal" style="z-index:10000">
+  <div class="modal" style="max-width:400px;text-align:center">
+    <div style="font-size:2.5rem;margin-bottom:8px">🩸</div>
+    <h3 style="font-family:var(--font-display);font-size:1.3rem;color:var(--text);margin-bottom:6px">Are you available to donate blood?</h3>
+    <p style="font-size:0.82rem;color:var(--text2);font-family:var(--font-ui);margin-bottom:24px;line-height:1.6">
+      Let us know your current donation availability. This helps match you with urgent blood requests.
+    </p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <button onclick="setAvailability(true)"
+        style="width:100%;padding:14px;background:var(--red);color:#fff;border:none;border-radius:12px;font-family:var(--font-ui);font-size:0.95rem;font-weight:700;cursor:pointer">
+        ✅ Yes, I'm Available to Donate
+      </button>
+      <button onclick="setAvailability(false)"
+        style="width:100%;padding:14px;background:none;border:2px solid var(--border);border-radius:12px;font-family:var(--font-ui);font-size:0.95rem;font-weight:600;color:var(--text2);cursor:pointer">
+        ❌ Not Available Right Now
+      </button>
+    </div>
+  </div>
+</div>
+
+
 </body>
-</html>

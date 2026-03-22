@@ -218,14 +218,46 @@ mongoose.connection.on('error', err =>
 
 // User / Auth
 const userSchema = new mongoose.Schema({
-  username:  { type: String, required: true, unique: true, trim: true },
-  password:  { type: String, required: true },
-  email:     { type: String, default: '', trim: true, lowercase: true },
-  role:      { type: String, enum: ['admin', 'user'], default: 'user' },
-  bloodType: { type: String, default: '', trim: true }, // optional — used for notifications
-  createdAt: { type: Date, default: Date.now }
+  username:         { type: String, required: true, unique: true, trim: true },
+  password:         { type: String, required: true },
+  email:            { type: String, default: '', trim: true, lowercase: true },
+  role:             { type: String, enum: ['admin', 'user'], default: 'user' },
+  bloodType:        { type: String, default: '', trim: true },
+  // Enhanced donor fields
+  mobile:           { type: String, default: '', trim: true, unique: true, sparse: true },
+  gender:           { type: String, enum: ['Male', 'Female', 'Other', ''], default: '' },
+  dateOfBirth:      { type: Date, default: null },
+  isAvailable:      { type: Boolean, default: true },
+  address:          { type: String, default: '', trim: true },
+  lastDonationDate: { type: Date, default: null },
+  donorId:          { type: mongoose.Schema.Types.ObjectId, ref: 'Donor', default: null },
+  createdAt:        { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', userSchema);
+
+// OTP Store (in-memory; for production use Redis or a DB collection)
+const otpStore = new Map(); // key: mobile → { otp, expiresAt, purpose }
+
+function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+async function sendOTP(mobile, otp) {
+  // If Twilio is configured, send real SMS; otherwise log to console (dev mode)
+  if (twilioClient && TWILIO_FROM) {
+    let phone = mobile.replace(/[\s\-()]/g, '');
+    if (!phone.startsWith('+')) phone = '+91' + phone;
+    await twilioClient.messages.create({
+      body: `Your HSBlood OTP is: ${otp}. Valid for 10 minutes. Do not share this with anyone.`,
+      from: TWILIO_FROM,
+      to: phone,
+    });
+    console.log(`📱 OTP sent to ${phone}`);
+  } else {
+    // Dev mode — print OTP to console so testing is possible without Twilio
+    console.log(`🔐 [DEV MODE] OTP for ${mobile}: ${otp}`);
+  }
+}
 
 // Notification
 const notificationSchema = new mongoose.Schema({
@@ -256,9 +288,9 @@ const BloodType = mongoose.model('BloodType', bloodTypeSchema);
 const donorSchema = new mongoose.Schema({
   firstName:       { type: String, required: true, trim: true },
   lastName:        { type: String, required: true, trim: true },
-  dateOfBirth:     { type: Date,   required: true },
-  gender:          { type: String, enum: ['Male','Female','Other'], required: true },
-  email:           { type: String, required: true, unique: true, lowercase: true, trim: true },
+  dateOfBirth:     { type: Date,   required: false, default: null },
+  gender:          { type: String, enum: ['Male','Female','Other',''], default: '' },
+  email:           { type: String, required: false, unique: true, sparse: true, lowercase: true, trim: true, default: null },
   phone:           { type: String, required: true },
   address:         { type: String, default: '' },
   city:            { type: String, default: 'N/A' },
@@ -367,6 +399,371 @@ function castAvailability(body) {
 
 // ─── AUTH ROUTES ──────────────────────────────────────────────
 
+// ── OTP: Send OTP to mobile (for HS Employee login/register) ──
+app.post('/api/auth/otp/send', async (req, res) => {
+  try {
+    const { mobile } = req.body;
+    if (!mobile || !/^[6-9]\d{9}$/.test(mobile.trim()))
+      return res.status(400).json({ success: false, error: 'Please enter a valid 10-digit Indian mobile number.' });
+
+    const mob = mobile.trim();
+    const otp = generateOTP();
+    otpStore.set(mob, { otp, expiresAt: Date.now() + 10 * 60 * 1000 });
+
+    await sendOTP(mob, otp);
+
+    // Check if mobile exists in donor list or as a user — tell frontend the status
+    const existingUser  = await User.findOne({ mobile: mob }).lean();
+    const existingDonor = await Donor.findOne({ phone: mob }).lean();
+
+    res.json({
+      success: true,
+      message: 'OTP sent successfully! Check your mobile.',
+      isExistingUser:  !!existingUser,
+      isExistingDonor: !!existingDonor && !existingUser,
+    });
+  } catch(err) {
+    res.status(500).json({ success: false, error: friendlyError(err, 'OTP Send') });
+  }
+});
+
+// ── OTP: Login with mobile + OTP (existing user OR existing donor) ──
+app.post('/api/auth/otp/login', async (req, res) => {
+  try {
+    const { mobile, otp } = req.body;
+    if (!mobile || !otp)
+      return res.status(400).json({ success: false, error: 'Mobile number and OTP are required.' });
+
+    const mob = mobile.trim();
+    const stored = otpStore.get(mob);
+    if (!stored)
+      return res.status(400).json({ success: false, error: 'No OTP found. Please request a new OTP.' });
+    if (Date.now() > stored.expiresAt) {
+      otpStore.delete(mob);
+      return res.status(400).json({ success: false, error: 'OTP expired. Please request a new one.' });
+    }
+    if (stored.otp !== otp.trim())
+      return res.status(400).json({ success: false, error: 'Incorrect OTP. Please try again.' });
+
+    otpStore.delete(mob);
+
+    // Find or create user by mobile
+    let user = await User.findOne({ mobile: mob });
+
+    if (!user) {
+      // Check if there is a donor with this phone — auto-create a user account for them
+      const donor = await Donor.findOne({ phone: mob }).lean();
+      if (donor) {
+        const autoUsername = `hs_${mob.slice(-6)}`;
+        const hashedPwd = await bcrypt.hash(mob + '_auto_' + Date.now(), 10);
+        user = await User.create({
+          username:         autoUsername,
+          password:         hashedPwd,
+          mobile:           mob,
+          email:            donor.email || '',
+          bloodType:        donor.bloodType || '',
+          gender:           donor.gender || '',
+          dateOfBirth:      donor.dateOfBirth || null,
+          isAvailable:      donor.isAvailable,
+          address:          donor.address || '',
+          lastDonationDate: donor.lastDonationDate || null,
+          role:             'user',
+          donorId:          donor._id,
+        });
+        console.log(`✅ Auto-created user for donor ${donor.firstName} ${donor.lastName} → ${autoUsername}`);
+      } else {
+        return res.status(404).json({
+          success: false,
+          error: 'No account found for this mobile number. Please register first.',
+          notRegistered: true,
+        });
+      }
+    }
+
+    const token = jwt.sign(
+      { id: user._id, username: user.username, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        username:         user.username,
+        role:             user.role,
+        email:            user.email || '',
+        bloodType:        user.bloodType || '',
+        mobile:           user.mobile || '',
+        gender:           user.gender || '',
+        dateOfBirth:      user.dateOfBirth || null,
+        isAvailable:      user.isAvailable,
+        address:          user.address || '',
+        lastDonationDate: user.lastDonationDate || null,
+        donorId:          user.donorId || null,
+      },
+      message: `Welcome back!`,
+    });
+  } catch(err) {
+    res.status(500).json({ success: false, error: friendlyError(err, 'OTP Login') });
+  }
+});
+
+// ── OTP: Register new HS Employee with full donor details ──
+app.post('/api/auth/otp/register', async (req, res) => {
+  try {
+    const { mobile, otp, firstName, lastName, gender, dateOfBirth, bloodType,
+            isAvailable, address, email, lastDonationDate } = req.body;
+
+    if (!mobile || !otp)
+      return res.status(400).json({ success: false, error: 'Mobile and OTP are required.' });
+
+    const mob = mobile.trim();
+    const stored = otpStore.get(mob);
+    if (!stored)
+      return res.status(400).json({ success: false, error: 'No OTP found. Please request a new OTP.' });
+    if (Date.now() > stored.expiresAt) {
+      otpStore.delete(mob);
+      return res.status(400).json({ success: false, error: 'OTP expired. Please request a new one.' });
+    }
+    if (stored.otp !== otp.trim())
+      return res.status(400).json({ success: false, error: 'Incorrect OTP. Please try again.' });
+
+    otpStore.delete(mob);
+
+    // Validate required fields
+    if (!firstName || !lastName) return res.status(400).json({ success: false, error: 'First name and last name are required.' });
+    if (!bloodType) return res.status(400).json({ success: false, error: 'Blood type is required.' });
+
+    const VALID_BT = ['A+','A-','B+','B-','AB+','AB-','O+','O-'];
+    if (!VALID_BT.includes(bloodType))
+      return res.status(400).json({ success: false, error: 'Invalid blood type.' });
+
+    // Check duplicate mobile
+    const existingUser = await User.findOne({ mobile: mob });
+    if (existingUser)
+      return res.status(409).json({ success: false, error: 'An account with this mobile number already exists. Please log in.' });
+
+    // Create or link donor record
+    let donor = await Donor.findOne({ phone: mob });
+    if (!donor) {
+      const donorEmail = email ? email.trim().toLowerCase() : `hs_${mob}@hsblood.local`;
+      // Ensure email uniqueness for auto-generated emails
+      const existingDonorEmail = await Donor.findOne({ email: donorEmail });
+      const finalEmail = existingDonorEmail ? `hs_${mob}_${Date.now()}@hsblood.local` : donorEmail;
+
+      donor = await Donor.create({
+        firstName:       firstName.trim(),
+        lastName:        lastName.trim(),
+        gender,
+        dateOfBirth:     new Date(dateOfBirth),
+        phone:           mob,
+        email:           finalEmail,
+        address:         address ? address.trim() : '',
+        city:            'N/A',
+        country:         'N/A',
+        bloodType,
+        isAvailable:     isAvailable !== false,
+        lastDonationDate: lastDonationDate ? new Date(lastDonationDate) : undefined,
+      });
+      console.log(`✅ Donor auto-created from registration: ${firstName} ${lastName}`);
+    }
+
+    // Create user account
+    const autoUsername = `hs_${mob.slice(-6)}_${Date.now().toString().slice(-4)}`;
+    const hashedPwd = await bcrypt.hash(mob + '_reg_' + Date.now(), 10);
+    const newUser = await User.create({
+      username:         autoUsername,
+      password:         hashedPwd,
+      mobile:           mob,
+      email:            email ? email.trim().toLowerCase() : '',
+      bloodType,
+      gender,
+      dateOfBirth:      new Date(dateOfBirth),
+      isAvailable:      isAvailable !== false,
+      address:          address ? address.trim() : '',
+      lastDonationDate: lastDonationDate ? new Date(lastDonationDate) : null,
+      role:             'user',
+      donorId:          donor._id,
+    });
+
+    const token = jwt.sign(
+      { id: newUser._id, username: newUser.username, role: newUser.role },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    console.log(`✅ New HS Employee registered via OTP → mobile: ${mob}, username: ${autoUsername}`);
+
+    res.status(201).json({
+      success: true,
+      token,
+      user: {
+        username:         newUser.username,
+        role:             newUser.role,
+        email:            newUser.email || '',
+        bloodType:        newUser.bloodType || '',
+        mobile:           newUser.mobile || '',
+        gender:           newUser.gender || '',
+        dateOfBirth:      newUser.dateOfBirth || null,
+        isAvailable:      newUser.isAvailable,
+        address:          newUser.address || '',
+        lastDonationDate: newUser.lastDonationDate || null,
+        donorId:          newUser.donorId || null,
+        firstName,
+        lastName,
+      },
+      message: `Welcome to HSBlood, ${firstName}! You are now registered as a donor.`,
+    });
+  } catch(err) {
+    if (err.code === 11000) {
+      const field = Object.keys(err.keyPattern || {})[0] || 'field';
+      return res.status(409).json({ success: false, error: `${field === 'mobile' ? 'Mobile number' : 'Email'} already exists.` });
+    }
+    res.status(500).json({ success: false, error: friendlyError(err, 'OTP Register') });
+  }
+});
+
+// ─── DIRECT REGISTER (OTP verified + mobile duplicate check) ──
+app.post('/api/auth/register-direct', async (req, res) => {
+  try {
+    const { mobile, otp, username, firstName, lastName, bloodType,
+            address, email, lastDonationDate } = req.body;
+
+    // Validate mobile
+    if (!mobile || !/^[6-9]\d{9}$/.test(mobile.trim()))
+      return res.status(400).json({ success: false, error: 'Please enter a valid 10-digit Indian mobile number.' });
+
+    const mob = mobile.trim();
+
+    // Verify OTP
+    if (!otp) return res.status(400).json({ success: false, error: 'OTP is required.' });
+    const stored = otpStore.get(mob);
+    if (!stored)            return res.status(400).json({ success: false, error: 'No OTP found for this number. Please send OTP first.' });
+    if (Date.now() > stored.expiresAt) { otpStore.delete(mob); return res.status(400).json({ success: false, error: 'OTP expired. Please request a new one.' }); }
+    if (stored.otp !== otp.trim())     return res.status(400).json({ success: false, error: 'Incorrect OTP. Please try again.' });
+    otpStore.delete(mob);
+
+    // Duplicate mobile check
+    const existingUser = await User.findOne({ mobile: mob });
+    if (existingUser)
+      return res.status(409).json({ success: false, error: 'This mobile number is already registered. Please sign in with OTP instead.' });
+
+    // Validate username
+    if (!username || username.trim().length < 3)
+      return res.status(400).json({ success: false, error: 'Username must be at least 3 characters.' });
+    const uname = username.trim().toLowerCase();
+    const existingUsername = await User.findOne({ username: uname });
+    if (existingUsername)
+      return res.status(409).json({ success: false, error: 'Username already taken. Please choose a different one.' });
+
+    // Validate required fields
+    if (!firstName || !lastName)
+      return res.status(400).json({ success: false, error: 'First name and last name are required.' });
+    if (!bloodType || !['A+','A-','B+','B-','AB+','AB-','O+','O-'].includes(bloodType))
+      return res.status(400).json({ success: false, error: 'Please select a valid blood type.' });
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
+      return res.status(400).json({ success: false, error: 'A valid email address is required.' });
+
+    // Create or link Donor record
+    let donor = await Donor.findOne({ phone: mob });
+    if (!donor) {
+      // Check email duplicate in donor collection
+      const emailClash = await Donor.findOne({ email: email.trim().toLowerCase() });
+      if (emailClash)
+        return res.status(409).json({ success: false, error: 'This email address is already registered.' });
+      donor = await Donor.create({
+        firstName: firstName.trim(), lastName: lastName.trim(),
+        dateOfBirth: null,
+        phone: mob, email: email.trim().toLowerCase(),
+        address: address ? address.trim() : '', city: 'N/A', country: 'N/A',
+        bloodType, isAvailable: true,
+        lastDonationDate: lastDonationDate ? new Date(lastDonationDate) : undefined,
+      });
+      console.log(`✅ Donor created: ${firstName} ${lastName}`);
+    }
+
+    // Create User account
+    const hashedPwd = await bcrypt.hash(mob + '_reg_' + Date.now(), 10);
+    const newUser = await User.create({
+      username: uname, password: hashedPwd, mobile: mob,
+      email: email.trim().toLowerCase(),
+      bloodType,
+      isAvailable: true,
+      address: address ? address.trim() : '',
+      lastDonationDate: lastDonationDate ? new Date(lastDonationDate) : null,
+      role: 'user', donorId: donor._id,
+    });
+
+    const token = jwt.sign({ id: newUser._id, username: newUser.username, role: newUser.role }, JWT_SECRET, { expiresIn: '24h' });
+    console.log(`✅ HS Employee registered → username: ${uname}, mobile: ${mob}`);
+
+    res.status(201).json({
+      success: true, token,
+      user: {
+        username: newUser.username, role: newUser.role, email: newUser.email || '',
+        bloodType: newUser.bloodType || '', mobile: newUser.mobile || '',
+        gender: newUser.gender || '', dateOfBirth: null,
+        isAvailable: newUser.isAvailable, address: newUser.address || '',
+        lastDonationDate: newUser.lastDonationDate || null, donorId: newUser.donorId || null,
+        firstName, lastName,
+      },
+      message: `Welcome to HSBlood, ${firstName}!`,
+    });
+  } catch(err) {
+    if (err.code === 11000) {
+      const field = Object.keys(err.keyPattern || {})[0] || 'field';
+      const msg = field === 'mobile' ? 'This mobile number is already registered.'
+                : field === 'username' ? 'Username already taken. Please choose a different one.'
+                : 'This email is already in use.';
+      return res.status(409).json({ success: false, error: msg });
+    }
+    res.status(500).json({ success: false, error: friendlyError(err, 'DirectRegister') });
+  }
+});
+
+// ─── UPDATE MOBILE (authenticated, OTP verified) ──────────────
+app.post('/api/auth/mobile/update', authenticate, async (req, res) => {
+  try {
+    const { newMobile, otp } = req.body;
+
+    if (!newMobile || !/^[6-9]\d{9}$/.test(newMobile.trim()))
+      return res.status(400).json({ success: false, error: 'Please enter a valid 10-digit Indian mobile number.' });
+
+    const mob = newMobile.trim();
+
+    // Verify OTP
+    if (!otp) return res.status(400).json({ success: false, error: 'OTP is required.' });
+    const stored = otpStore.get(mob);
+    if (!stored)            return res.status(400).json({ success: false, error: 'No OTP found. Please send OTP first.' });
+    if (Date.now() > stored.expiresAt) { otpStore.delete(mob); return res.status(400).json({ success: false, error: 'OTP expired. Please request a new one.' }); }
+    if (stored.otp !== otp.trim())     return res.status(400).json({ success: false, error: 'Incorrect OTP. Please try again.' });
+    otpStore.delete(mob);
+
+    // Check duplicate — exclude self
+    const clash = await User.findOne({ mobile: mob, _id: { $ne: req.user.id } });
+    if (clash) return res.status(409).json({ success: false, error: 'This mobile number is already registered to another account.' });
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
+
+    const oldMobile = user.mobile;
+    user.mobile = mob;
+    await user.save();
+
+    // Sync donor record phone if linked
+    if (user.donorId) {
+      await Donor.findByIdAndUpdate(user.donorId, { phone: mob, updatedAt: new Date() }).catch(() => {});
+    }
+
+    console.log(`✅ Mobile updated for ${user.username}: ${oldMobile} → ${mob}`);
+    res.json({ success: true, message: 'Mobile number updated successfully!' });
+  } catch(err) {
+    if (err.code === 11000) return res.status(409).json({ success: false, error: 'This mobile number is already registered to another account.' });
+    res.status(500).json({ success: false, error: friendlyError(err, 'MobileUpdate') });
+  }
+});
+
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -390,7 +787,19 @@ app.post('/api/auth/login', async (req, res) => {
     res.json({
       success: true,
       token,
-      user: { username: user.username, role: user.role, email: user.email || '', bloodType: user.bloodType || '' },
+      user: {
+        username:         user.username,
+        role:             user.role,
+        email:            user.email || '',
+        bloodType:        user.bloodType || '',
+        mobile:           user.mobile || '',
+        gender:           user.gender || '',
+        dateOfBirth:      user.dateOfBirth || null,
+        isAvailable:      user.isAvailable,
+        address:          user.address || '',
+        lastDonationDate: user.lastDonationDate || null,
+        donorId:          user.donorId || null,
+      },
       message: `Welcome back, ${user.username}!`
     });
   } catch(err) {
@@ -451,6 +860,29 @@ app.post('/api/auth/register', async (req, res) => {
 
 
 // ─── FORGOT PASSWORD (lookup by username + email) ─────────────
+// ─── PUBLIC: Admin contact email (for Contact Support feature) ───
+app.get('/api/config/admin-email', (req, res) => {
+  const email = process.env.ADMIN_EMAIL || '';
+  res.json({ success: true, email });
+});
+
+// ─── SET AVAILABILITY (lightweight — HS Employee only) ────────
+app.post('/api/auth/availability', authenticate, async (req, res) => {
+  try {
+    const isAvailable = req.body.isAvailable === true || req.body.isAvailable === 'true';
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
+    user.isAvailable = isAvailable;
+    await user.save();
+    if (user.donorId) {
+      await Donor.findByIdAndUpdate(user.donorId, { isAvailable, updatedAt: new Date() }).catch(() => {});
+    }
+    res.json({ success: true, isAvailable });
+  } catch(err) {
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
+  }
+});
+
 app.post('/api/auth/forgot-password', async (req, res) => {
   try {
     const { username, email, newPassword, confirmPassword } = req.body;
@@ -481,29 +913,22 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   }
 });
 
-// ─── CHANGE PASSWORD (authenticated) ─────────────────────────
+// ─── CHANGE PASSWORD (authenticated — no current password required) ───────────
 app.post('/api/auth/change-password', authenticate, async (req, res) => {
   try {
-    const { currentPassword, newPassword, confirmPassword } = req.body;
+    const { newPassword, confirmPassword } = req.body;
 
-    if (!currentPassword || !newPassword || !confirmPassword)
+    if (!newPassword || !confirmPassword)
       return res.status(400).json({ success: false, error: 'All fields are required.' });
 
     if (newPassword.length < 6)
       return res.status(400).json({ success: false, error: 'New password must be at least 6 characters.' });
 
     if (newPassword !== confirmPassword)
-      return res.status(400).json({ success: false, error: 'New passwords do not match.' });
+      return res.status(400).json({ success: false, error: 'Passwords do not match.' });
 
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
-
-    const match = await bcrypt.compare(currentPassword, user.password);
-    if (!match)
-      return res.status(401).json({ success: false, error: 'Current password is incorrect.' });
-
-    if (currentPassword === newPassword)
-      return res.status(400).json({ success: false, error: 'New password must be different from the current one.' });
 
     user.password = await bcrypt.hash(newPassword, 10);
     await user.save();
@@ -574,50 +999,25 @@ app.post('/api/donors/bulk', authenticate, adminOnly, async (req, res) => {
       return res.status(400).json({ success: false, error: 'No donor data provided.' });
 
     const VALID_BLOOD_TYPES = ['A+','A-','B+','B-','AB+','AB-','O+','O-'];
-    const VALID_GENDERS     = ['Male','Female','Other'];
 
     const results = { inserted: 0, skipped: 0, errors: [] };
 
     for (let i = 0; i < donors.length; i++) {
       const raw = donors[i];
-      const rowNum = i + 2; // Excel row (header is row 1)
+      const rowNum = i + 2;
 
       try {
         // Normalise blood type
         const bt = (raw.bloodType || '').toString().trim().toUpperCase()
           .replace('POSITIVE','+').replace('NEGATIVE','-');
 
-        // Normalise gender
-        let gender = (raw.gender || '').toString().trim();
-        gender = gender.charAt(0).toUpperCase() + gender.slice(1).toLowerCase();
-        if (gender === 'M') gender = 'Male';
-        if (gender === 'F') gender = 'Female';
-
-        // Validate required fields
+        // Validate required fields (firstName, lastName, phone, bloodType only)
         if (!raw.firstName || !raw.lastName)
           throw new Error('First name and last name are required');
-        if (!raw.email)
-          throw new Error('Email is required');
         if (!raw.phone)
           throw new Error('Phone is required');
         if (!VALID_BLOOD_TYPES.includes(bt))
           throw new Error(`Invalid blood type "${bt}". Must be one of: ${VALID_BLOOD_TYPES.join(', ')}`);
-        if (!VALID_GENDERS.includes(gender))
-          throw new Error(`Invalid gender "${gender}". Must be Male, Female, or Other`);
-
-        // Parse date of birth
-        let dob;
-        if (raw.dateOfBirth) {
-          // Handle Excel serial date numbers
-          if (typeof raw.dateOfBirth === 'number') {
-            dob = new Date(Math.round((raw.dateOfBirth - 25569) * 86400 * 1000));
-          } else {
-            dob = new Date(raw.dateOfBirth);
-          }
-          if (isNaN(dob.getTime())) throw new Error('Invalid date of birth');
-        } else {
-          throw new Error('Date of birth is required');
-        }
 
         // Parse last donation date (optional)
         let lastDonationDate;
@@ -630,16 +1030,17 @@ app.post('/api/donors/bulk', authenticate, adminOnly, async (req, res) => {
           if (isNaN(lastDonationDate.getTime())) lastDonationDate = undefined;
         }
 
+        // Email is optional — only include if provided and not empty
+        const emailRaw = raw.email ? raw.email.toString().trim().toLowerCase() : null;
+
         const donorDoc = {
           firstName:       raw.firstName.toString().trim(),
           lastName:        raw.lastName.toString().trim(),
-          dateOfBirth:     dob,
-          gender,
-          email:           raw.email.toString().trim().toLowerCase(),
           phone:           raw.phone.toString().trim(),
+          email:           emailRaw || undefined,
           address:         (raw.address || '').toString().trim(),
-          city:            (raw.city    || 'N/A').toString().trim(),
-          country:         (raw.country || 'N/A').toString().trim(),
+          city:            'N/A',
+          country:         'N/A',
           bloodType:       bt,
           isAvailable:     String(raw.isAvailable).toLowerCase() !== 'false',
           lastDonationDate
@@ -652,8 +1053,8 @@ app.post('/api/donors/bulk', authenticate, adminOnly, async (req, res) => {
         results.skipped++;
         results.errors.push({
           row: rowNum,
-          email: (raw.email || '').toString(),
-          reason: isDuplicate ? 'Email already exists in registry' : (rowErr.name === 'ValidationError' ? Object.values(rowErr.errors).map(e => e.message).join('; ') : rowErr.message)
+          phone: (raw.phone || '').toString(),
+          reason: isDuplicate ? 'Phone or email already exists in registry' : (rowErr.name === 'ValidationError' ? Object.values(rowErr.errors).map(e => e.message).join('; ') : rowErr.message)
         });
       }
     }
@@ -714,11 +1115,35 @@ app.put('/api/donors/:id', authenticate, adminOnly, async (req, res) => {
   } catch(err) { res.status(400).json({ success: false, error: friendlyError(err, 'Validation') }); }
 });
 
-// Admin only — delete donor
+// Admin only — delete donor (also removes linked HS Employee user account)
 app.delete('/api/donors/:id', authenticate, adminOnly, async (req, res) => {
   try {
+    const donor = await Donor.findById(req.params.id);
+    if (!donor) return res.status(404).json({ success: false, error: 'Donor not found.' });
+
+    // Find and delete the linked user account (matched by donorId or phone)
+    const linkedUser = await User.findOne({
+      $or: [
+        { donorId: donor._id },
+        { mobile: donor.phone }
+      ],
+      role: 'user' // never touch admin accounts
+    });
+
     await Donor.findByIdAndDelete(req.params.id);
-    res.json({ success: true, message: 'Donor removed from registry.' });
+
+    let userDeleted = false;
+    if (linkedUser) {
+      await User.findByIdAndDelete(linkedUser._id);
+      userDeleted = true;
+      console.log(`🗑 User account deleted along with donor: ${linkedUser.username} (${linkedUser.mobile})`);
+    }
+
+    const message = userDeleted
+      ? `Donor and linked HS Employee account (${linkedUser.username}) removed.`
+      : 'Donor removed from registry.';
+
+    res.json({ success: true, message });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
@@ -1082,59 +1507,130 @@ app.get('/api/users', authenticate, adminOnly, async (req, res) => {
 // Create user
 app.post('/api/users', authenticate, adminOnly, async (req, res) => {
   try {
-    const { username, password, email, role, bloodType } = req.body;
-    if (!username || !password)
-      return res.status(400).json({ success: false, error: 'Username and password are required.' });
-    if (username.trim().length < 3)
+    const { mobile, firstName, lastName, bloodType, email, username, password } = req.body;
+
+    if (!mobile || !/^[6-9]\d{9}$/.test(mobile.trim()))
+      return res.status(400).json({ success: false, error: 'Please enter a valid 10-digit mobile number.' });
+    if (!firstName || !lastName)
+      return res.status(400).json({ success: false, error: 'First name and last name are required.' });
+    if (!bloodType || !['A+','A-','B+','B-','AB+','AB-','O+','O-'].includes(bloodType))
+      return res.status(400).json({ success: false, error: 'Please select a valid blood type.' });
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
+      return res.status(400).json({ success: false, error: 'A valid email address is required.' });
+    if (!username || username.trim().length < 3)
       return res.status(400).json({ success: false, error: 'Username must be at least 3 characters.' });
-    if (password.length < 6)
+    if (!password || password.length < 6)
       return res.status(400).json({ success: false, error: 'Password must be at least 6 characters.' });
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
-      return res.status(400).json({ success: false, error: 'Please enter a valid email address.' });
-    const existing = await User.findOne({ username: username.trim().toLowerCase() });
-    if (existing)
-      return res.status(409).json({ success: false, error: 'Username already exists.' });
-    const hashed = await bcrypt.hash(password, 10);
+
+    const mob   = mobile.trim();
+    const uname = username.trim().toLowerCase();
+
+    // Duplicate checks
+    const mobileClash   = await User.findOne({ mobile: mob });
+    if (mobileClash)  return res.status(409).json({ success: false, error: 'This mobile number is already registered.' });
+    const usernameClash = await User.findOne({ username: uname });
+    if (usernameClash) return res.status(409).json({ success: false, error: 'Username already taken.' });
+
+    const hashedPwd = await bcrypt.hash(password, 10);
+
+    // Create Donor record
+    const emailClash = await Donor.findOne({ email: email.trim().toLowerCase() });
+    if (emailClash) return res.status(409).json({ success: false, error: 'This email is already registered to a donor.' });
+    const phoneClash = await Donor.findOne({ phone: mob });
+    let donorId = null;
+    if (!phoneClash) {
+      const donor = await Donor.create({
+        firstName: firstName.trim(), lastName: lastName.trim(),
+        gender: '', dateOfBirth: null,
+        phone: mob, email: email.trim().toLowerCase(),
+        address: '', city: 'N/A', country: 'N/A',
+        bloodType, isAvailable: true,
+      });
+      donorId = donor._id;
+      console.log(`✅ Donor created (admin-add): ${firstName} ${lastName}`);
+    }
+
     const user = await User.create({
-      username:  username.trim().toLowerCase(),
-      password:  hashed,
-      email:     email ? email.trim().toLowerCase() : '',
-      role:      role === 'admin' ? 'admin' : 'user',
-      bloodType: bloodType ? bloodType.trim() : ''
+      username: uname, password: hashedPwd,
+      mobile: mob, bloodType, role: 'user',
+      email: email.trim().toLowerCase(),
+      isAvailable: true, donorId,
     });
-    res.status(201).json({ success: true, message: `User "${user.username}" created.`, data: { _id: user._id, username: user.username, email: user.email, role: user.role, bloodType: user.bloodType || '', createdAt: user.createdAt } });
+
+    res.status(201).json({
+      success: true,
+      message: `User "${firstName} ${lastName}" added${donorId ? ' and registered as a donor' : ''}. They can log in with OTP or username/password.`,
+      data: { _id: user._id, username: user.username, mobile: user.mobile, role: user.role, bloodType: user.bloodType || '', createdAt: user.createdAt }
+    });
   } catch(err) {
-    if (err.code === 11000) return res.status(409).json({ success: false, error: 'Username already exists.' });
+    if (err.code === 11000) {
+      const field = Object.keys(err.keyPattern || {})[0] || 'field';
+      const msg = field === 'mobile' ? 'Mobile number already registered.'
+                : field === 'username' ? 'Username already taken.'
+                : field === 'email' ? 'Email already registered.'
+                : 'Duplicate value — please try again.';
+      return res.status(409).json({ success: false, error: msg });
+    }
     res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
   }
 });
 
-// Update user (username, email, role, optional new password)
+// Update user (admin only)
 app.put('/api/users/:id', authenticate, adminOnly, async (req, res) => {
   try {
-    const { username, email, role, password, bloodType } = req.body;
+    const { mobile, firstName, lastName, bloodType, email, username, password } = req.body;
+
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
 
-    if (username && username.trim().length >= 3) {
-      const clash = await User.findOne({ username: username.trim().toLowerCase(), _id: { $ne: user._id } });
-      if (clash) return res.status(409).json({ success: false, error: 'Username already taken.' });
-      user.username = username.trim().toLowerCase();
+    if (mobile !== undefined && mobile !== '') {
+      if (!/^[6-9]\d{9}$/.test(mobile.trim()))
+        return res.status(400).json({ success: false, error: 'Please enter a valid 10-digit mobile number.' });
+      const clash = await User.findOne({ mobile: mobile.trim(), _id: { $ne: user._id } });
+      if (clash) return res.status(409).json({ success: false, error: 'This mobile number is already registered.' });
+      user.mobile = mobile.trim();
     }
-    if (email !== undefined) {
-      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
+    if (username !== undefined && username.trim().length >= 3) {
+      const uname = username.trim().toLowerCase();
+      if (uname !== user.username) {
+        const clash = await User.findOne({ username: uname, _id: { $ne: user._id } });
+        if (clash) return res.status(409).json({ success: false, error: 'Username already taken.' });
+        user.username = uname;
+      }
+    }
+    if (email !== undefined && email.trim()) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
         return res.status(400).json({ success: false, error: 'Please enter a valid email address.' });
-      user.email = email ? email.trim().toLowerCase() : '';
+      user.email = email.trim().toLowerCase();
     }
-    if (role === 'admin' || role === 'user') user.role = role;
     if (bloodType !== undefined) user.bloodType = bloodType ? bloodType.trim() : '';
+    if (firstName)               user.firstName = firstName.trim();
+    if (lastName)                user.lastName  = lastName.trim();
     if (password) {
       if (password.length < 6) return res.status(400).json({ success: false, error: 'Password must be at least 6 characters.' });
       user.password = await bcrypt.hash(password, 10);
     }
     await user.save();
-    res.json({ success: true, message: `User "${user.username}" updated.`, data: { _id: user._id, username: user.username, email: user.email, role: user.role, bloodType: user.bloodType || '', createdAt: user.createdAt } });
-  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
+
+    // Sync linked donor record if exists
+    if (user.donorId) {
+      const donorUpdate = { updatedAt: new Date() };
+      if (bloodType !== undefined) donorUpdate.bloodType = user.bloodType;
+      if (mobile !== undefined && mobile !== '') donorUpdate.phone = user.mobile;
+      if (firstName) donorUpdate.firstName = firstName.trim();
+      if (lastName)  donorUpdate.lastName  = lastName.trim();
+      if (email !== undefined && email.trim()) donorUpdate.email = user.email;
+      await Donor.findByIdAndUpdate(user.donorId, donorUpdate).catch(() => {});
+    }
+
+    res.json({ success: true, message: `User "${user.username}" updated.`, data: { _id: user._id, username: user.username, mobile: user.mobile || '', role: user.role, bloodType: user.bloodType || '', createdAt: user.createdAt } });
+  } catch(err) {
+    if (err.code === 11000) {
+      const field = Object.keys(err.keyPattern || {})[0] || 'field';
+      return res.status(409).json({ success: false, error: field === 'mobile' ? 'Mobile number already registered.' : field === 'username' ? 'Username already taken.' : 'Email already registered.' });
+    }
+    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
+  }
 });
 
 // Delete user (cannot delete own account)
@@ -1278,10 +1774,10 @@ app.get('/api/auth/profile', authenticate, async (req, res) => {
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
-// PUT /api/auth/profile — update own profile (username, email, bloodType)
+// PUT /api/auth/profile — update own profile (username, email, bloodType + donor fields)
 app.put('/api/auth/profile', authenticate, async (req, res) => {
   try {
-    const { username, email, bloodType } = req.body;
+    const { username, email, bloodType, gender, dateOfBirth, isAvailable, address, lastDonationDate } = req.body;
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
 
@@ -1309,14 +1805,78 @@ app.put('/api/auth/profile', authenticate, async (req, res) => {
       user.email = newEmail;
     }
 
-    if (bloodType !== undefined) user.bloodType = bloodType ? bloodType.trim() : '';
+    if (bloodType !== undefined)      user.bloodType        = bloodType ? bloodType.trim() : '';
+    if (gender !== undefined)         user.gender           = gender || '';
+    if (dateOfBirth !== undefined)    user.dateOfBirth      = dateOfBirth ? new Date(dateOfBirth) : null;
+    if (isAvailable !== undefined)    user.isAvailable      = Boolean(isAvailable);
+    if (address !== undefined)        user.address          = address ? address.trim() : '';
+    if (lastDonationDate !== undefined) user.lastDonationDate = lastDonationDate ? new Date(lastDonationDate) : null;
 
     await user.save();
 
+    // Sync linked donor record if exists
+    if (user.donorId) {
+      const donorUpdate = {};
+      if (bloodType !== undefined)       donorUpdate.bloodType        = user.bloodType;
+      if (gender !== undefined)          donorUpdate.gender           = user.gender;
+      if (dateOfBirth !== undefined)     donorUpdate.dateOfBirth      = user.dateOfBirth;
+      if (isAvailable !== undefined)     donorUpdate.isAvailable      = user.isAvailable;
+      if (address !== undefined)         donorUpdate.address          = user.address;
+      if (lastDonationDate !== undefined) donorUpdate.lastDonationDate = user.lastDonationDate;
+      if (email !== undefined)           donorUpdate.email            = user.email;
+      donorUpdate.updatedAt = new Date();
+      await Donor.findByIdAndUpdate(user.donorId, donorUpdate).catch(() => {});
+    }
+
     // Return updated user (no password)
-    const updated = { username: user.username, email: user.email, role: user.role, bloodType: user.bloodType || '' };
+    const updated = {
+      username:         user.username,
+      email:            user.email,
+      role:             user.role,
+      bloodType:        user.bloodType || '',
+      mobile:           user.mobile || '',
+      gender:           user.gender || '',
+      dateOfBirth:      user.dateOfBirth || null,
+      isAvailable:      user.isAvailable,
+      address:          user.address || '',
+      lastDonationDate: user.lastDonationDate || null,
+      donorId:          user.donorId || null,
+    };
     res.json({ success: true, user: updated, message: 'Profile updated successfully!' });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
+});
+
+// DELETE /api/auth/account — user deletes their own account + linked donor record
+app.delete('/api/auth/account', authenticate, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
+
+    // Prevent admin self-deletion via this endpoint
+    if (user.role === 'admin')
+      return res.status(403).json({ success: false, error: 'Admin accounts cannot be self-deleted.' });
+
+    // Delete linked donor record (by donorId or mobile/phone match)
+    let donorDeleted = false;
+    if (user.donorId) {
+      await Donor.findByIdAndDelete(user.donorId);
+      donorDeleted = true;
+    } else if (user.mobile) {
+      const donor = await Donor.findOne({ phone: user.mobile });
+      if (donor) { await Donor.findByIdAndDelete(donor._id); donorDeleted = true; }
+    }
+
+    // Delete all notifications for this user
+    await Notification.deleteMany({ username: user.username });
+
+    // Delete the user account
+    await User.findByIdAndDelete(user._id);
+
+    console.log(`🗑 Self-deleted: ${user.username} (mobile: ${user.mobile || 'none'}) — donor removed: ${donorDeleted}`);
+    res.json({ success: true, message: 'Your account and donor record have been permanently deleted.' });
+  } catch(err) {
+    res.status(500).json({ success: false, error: friendlyError(err, 'AccountDelete') });
+  }
 });
 
 // ─── NOTIFICATION ROUTES ─────────────────────────────────────

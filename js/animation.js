@@ -146,3 +146,12 @@
     showToast('Your session has expired. Please log in again.', 'error');
   }, msUntilExpiry);
 })();
+
+// ── INITIAL LOGIN FORM STATE ───────────────────────
+// Show OTP form on load since HS Employee tab is active by default
+(function initLoginForms(){
+  const adminForm = document.getElementById('admin-login-form');
+  const otpForm   = document.getElementById('user-otp-form');
+  if (adminForm) adminForm.style.display = 'none';
+  if (otpForm)   otpForm.style.display   = '';
+})();

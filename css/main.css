@@ -1097,3 +1097,40 @@ thead th{font-size:var(--fs-xs)}
 @media (max-width: 520px) {
   .profile-field-row { grid-template-columns: 1fr; }
 }
+
+/* ── OTP LOGIN FLOW ─────────────────────────────────────────── */
+#user-otp-form { animation: fadeIn .2s ease; }
+#step-register {
+  max-height: 65vh;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+#step-register::-webkit-scrollbar { width: 4px; }
+#step-register::-webkit-scrollbar-track { background: transparent; }
+#step-register::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* OTP digit input */
+#otp-code {
+  text-align: center;
+  font-size: 1.6rem !important;
+  letter-spacing: 0.4em !important;
+  font-weight: 700 !important;
+}
+
+/* Profile card wider for extra fields */
+.profile-card { max-width: 680px; }
+
+/* Profile mobile */
+@media (max-width: 600px) {
+  .profile-field-row { grid-template-columns: 1fr; }
+  #step-register .form-grid { grid-template-columns: 1fr !important; }
+  #step-register .form-group[style*="grid-column"] { grid-column: auto !important; }
+}
+
+/* Donor badge on profile */
+#profile-donor-badge { margin-top: 6px; }
+
+/* Login right panel scroll for long registration form */
+.login-right { overflow-y: auto; }

@@ -117,10 +117,8 @@ async function saveDonor(e){
   const body={
     firstName:       document.getElementById('d-firstName').value,
     lastName:        document.getElementById('d-lastName').value,
-    gender:          document.getElementById('d-gender').value,
-    dateOfBirth:     document.getElementById('d-dob').value,
     phone:           document.getElementById('d-phone').value,
-    email:           document.getElementById('d-email').value,
+    email:           document.getElementById('d-email').value || undefined,
     address:         document.getElementById('d-address').value,
     city:'N/A', country:'N/A',
     bloodType:       document.getElementById('d-bloodType').value,
@@ -160,8 +158,6 @@ async function editDonor(id){
   document.getElementById('donor-modal-title').textContent='Edit Donor';
   document.getElementById('d-firstName').value=d.firstName||'';
   document.getElementById('d-lastName').value=d.lastName||'';
-  document.getElementById('d-gender').value=d.gender||'';
-  document.getElementById('d-dob').value=d.dateOfBirth?d.dateOfBirth.split('T')[0]:'';
   document.getElementById('d-phone').value=d.phone||'';
   document.getElementById('d-email').value=d.email||'';
   document.getElementById('d-address').value=d.address||'';
@@ -179,8 +175,7 @@ async function viewDonor(id){
   const d=res.data;
   const fields=[
     ['First Name',d.firstName],['Last Name',d.lastName],
-    ['Gender',d.gender],['Date of Birth',formatDate(d.dateOfBirth)],
-    ['Phone',d.phone],['Email',d.email],
+    ['Phone',d.phone],['Email',d.email||'—'],
     ['Address',d.address||'—'],['Blood Type',d.bloodType],
     ['Last Donation',formatDate(d.lastDonationDate)],['Registered',formatDate(d.createdAt)],
   ];
