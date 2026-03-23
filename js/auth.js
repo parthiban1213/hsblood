@@ -53,7 +53,7 @@ async function doLogin() {
         errEl.textContent = 'Please use the Admin tab for admin accounts.'; errEl.classList.add('show');
         authToken = null; currentUser = null; btn.disabled = false; btn.textContent = 'Sign In →'; return;
       }
-      persistSession(authToken, currentUser); launchApp();
+      persistSession(authToken, currentUser); launchApp({freshLogin:true});
     } else { errEl.textContent = data.error || 'Login failed.'; errEl.classList.add('show'); }
   } catch(e) { errEl.textContent = 'Cannot connect to server.'; errEl.classList.add('show'); }
   btn.disabled = false; btn.textContent = 'Sign In →';
@@ -115,7 +115,7 @@ async function doUserPwdLogin() {
         btn.disabled = false; btn.textContent = 'Sign In →'; return;
       }
       authToken = data.token; currentUser = data.user;
-      persistSession(authToken, currentUser); launchApp();
+      persistSession(authToken, currentUser); launchApp({freshLogin:true});
       showToast('Welcome back! 🩸', 'success');
     } else { _showOTPError(data.error || 'Login failed.'); }
   } catch(e) { _showOTPError('Cannot connect to server.'); }
@@ -158,7 +158,7 @@ async function verifyOTP() {
       const data = await res.json();
       if (data.success) {
         clearOTPTimer(); authToken = data.token; currentUser = data.user;
-        persistSession(authToken, currentUser); launchApp(); showToast('Welcome back! 🩸', 'success');
+        persistSession(authToken, currentUser); launchApp({freshLogin:true}); showToast('Welcome back! 🩸', 'success');
       } else { _showOTPError(data.error || 'Login failed.'); }
     } catch(e) { _showOTPError('Cannot connect to server.'); }
   } else {
@@ -275,7 +275,7 @@ async function doOTPRegister() {
       authToken = data.token; currentUser = data.user;
       persistSession(authToken, currentUser);
       sessionStorage.setItem('hs_new_registration', '1');
-      launchApp();
+      launchApp({freshLogin:true});
       showToast(`Welcome, ${firstName}! You are now registered as a donor. 🩸`, 'success');
     } else { _showOTPError(data.error || 'Registration failed.'); }
   } catch(e) { _showOTPError('Cannot connect to server.'); }
@@ -362,12 +362,16 @@ function persistSession(token, user) {
   localStorage.setItem('bl_token', token); localStorage.setItem('bl_user', JSON.stringify(user)); localStorage.setItem('bl_expires_at', expiresAt.toString());
 }
 
-function launchApp() {
+function launchApp(opts) {
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('app').classList.add('visible');
   applyRoleUI();
   showPage('dashboard', document.querySelector('.nav-btn[onclick*="dashboard"]'));
   if (typeof initNotifications === 'function') initNotifications();
+  // Show availability popup only on fresh login (not on session restore)
+  if (opts && opts.freshLogin && currentUser && currentUser.role === 'user') {
+    setTimeout(() => openModal('availability-modal'), 600);
+  }
 }
 
 // ── FORGOT PASSWORD (username/password login flow) ────────────
