@@ -54,8 +54,6 @@ function renderProfile(user) {
   _setVal('profile-email',     user.email     || '');
   _setVal('profile-bloodtype', user.bloodType || '');
   _setVal('profile-mobile',    user.mobile    || '');
-  _setVal('profile-gender',    user.gender    || '');
-  _setVal('profile-dob',       user.dateOfBirth ? user.dateOfBirth.split('T')[0] : '');
   _setVal('profile-available', user.isAvailable !== undefined ? String(user.isAvailable) : 'true');
   _setVal('profile-address',   user.address   || '');
   _setVal('profile-lastDonation', user.lastDonationDate ? user.lastDonationDate.split('T')[0] : '');
@@ -77,8 +75,6 @@ async function saveProfile() {
   const username     = document.getElementById('profile-username')?.value.trim();
   const email        = document.getElementById('profile-email')?.value.trim();
   const bloodType    = document.getElementById('profile-bloodtype')?.value;
-  const gender       = document.getElementById('profile-gender')?.value;
-  const dateOfBirth  = document.getElementById('profile-dob')?.value;
   const isAvailable  = document.getElementById('profile-available')?.value === 'true';
   const address      = document.getElementById('profile-address')?.value.trim();
   const lastDonation = document.getElementById('profile-lastDonation')?.value;
@@ -91,8 +87,8 @@ async function saveProfile() {
   try {
     const res = await apiFetch('/auth/profile', {
       method: 'PUT',
-      body: JSON.stringify({ firstName, lastName, username, email, bloodType, gender,
-        dateOfBirth: dateOfBirth || null, isAvailable, address,
+      body: JSON.stringify({ firstName, lastName, username, email, bloodType,
+        isAvailable, address,
         lastDonationDate: lastDonation || null })
     });
     if (res.success) {

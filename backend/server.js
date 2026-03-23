@@ -225,8 +225,6 @@ const userSchema = new mongoose.Schema({
   bloodType:        { type: String, default: '', trim: true },
   // Enhanced donor fields
   mobile:           { type: String, default: '', trim: true, unique: true, sparse: true },
-  gender:           { type: String, enum: ['Male', 'Female', 'Other', ''], default: '' },
-  dateOfBirth:      { type: Date, default: null },
   isAvailable:      { type: Boolean, default: true },
   address:          { type: String, default: '', trim: true },
   lastDonationDate: { type: Date, default: null },
@@ -290,8 +288,6 @@ const BloodType = mongoose.model('BloodType', bloodTypeSchema);
 const donorSchema = new mongoose.Schema({
   firstName:       { type: String, required: true, trim: true },
   lastName:        { type: String, required: true, trim: true },
-  dateOfBirth:     { type: Date,   required: false, default: null },
-  gender:          { type: String, enum: ['Male','Female','Other',''], default: '' },
   email:           { type: String, required: false, unique: true, sparse: true, lowercase: true, trim: true, default: null },
   phone:           { type: String, required: true },
   address:         { type: String, default: '' },
@@ -473,8 +469,6 @@ app.post('/api/auth/otp/login', async (req, res) => {
           mobile:           mob,
           email:            donor.email || '',
           bloodType:        donor.bloodType || '',
-          gender:           donor.gender || '',
-          dateOfBirth:      donor.dateOfBirth || null,
           isAvailable:      donor.isAvailable,
           address:          donor.address || '',
           lastDonationDate: donor.lastDonationDate || null,
@@ -506,8 +500,8 @@ app.post('/api/auth/otp/login', async (req, res) => {
         email:            user.email || '',
         bloodType:        user.bloodType || '',
         mobile:           user.mobile || '',
-        gender:           user.gender || '',
-        dateOfBirth:      user.dateOfBirth || null,
+        firstName:        user.firstName || '',
+        lastName:         user.lastName || '',
         isAvailable:      user.isAvailable,
         address:          user.address || '',
         lastDonationDate: user.lastDonationDate || null,
@@ -523,7 +517,7 @@ app.post('/api/auth/otp/login', async (req, res) => {
 // ── OTP: Register new HS Employee with full donor details ──
 app.post('/api/auth/otp/register', async (req, res) => {
   try {
-    const { mobile, otp, firstName, lastName, gender, dateOfBirth, bloodType,
+    const { mobile, otp, firstName, lastName, bloodType,
             isAvailable, address, email, lastDonationDate } = req.body;
 
     if (!mobile || !otp)
@@ -566,8 +560,6 @@ app.post('/api/auth/otp/register', async (req, res) => {
       donor = await Donor.create({
         firstName:       firstName.trim(),
         lastName:        lastName.trim(),
-        gender,
-        dateOfBirth:     new Date(dateOfBirth),
         phone:           mob,
         email:           finalEmail,
         address:         address ? address.trim() : '',
@@ -589,8 +581,6 @@ app.post('/api/auth/otp/register', async (req, res) => {
       mobile:           mob,
       email:            email ? email.trim().toLowerCase() : '',
       bloodType,
-      gender,
-      dateOfBirth:      new Date(dateOfBirth),
       isAvailable:      isAvailable !== false,
       address:          address ? address.trim() : '',
       lastDonationDate: lastDonationDate ? new Date(lastDonationDate) : null,
@@ -615,8 +605,6 @@ app.post('/api/auth/otp/register', async (req, res) => {
         email:            newUser.email || '',
         bloodType:        newUser.bloodType || '',
         mobile:           newUser.mobile || '',
-        gender:           newUser.gender || '',
-        dateOfBirth:      newUser.dateOfBirth || null,
         isAvailable:      newUser.isAvailable,
         address:          newUser.address || '',
         lastDonationDate: newUser.lastDonationDate || null,
@@ -685,7 +673,6 @@ app.post('/api/auth/register-direct', async (req, res) => {
         return res.status(409).json({ success: false, error: 'This email address is already registered.' });
       donor = await Donor.create({
         firstName: firstName.trim(), lastName: lastName.trim(),
-        dateOfBirth: null,
         phone: mob, email: email.trim().toLowerCase(),
         address: address ? address.trim() : '', city: 'N/A', country: 'N/A',
         bloodType, isAvailable: true,
@@ -714,7 +701,6 @@ app.post('/api/auth/register-direct', async (req, res) => {
       user: {
         username: newUser.username, role: newUser.role, email: newUser.email || '',
         bloodType: newUser.bloodType || '', mobile: newUser.mobile || '',
-        gender: newUser.gender || '', dateOfBirth: null,
         isAvailable: newUser.isAvailable, address: newUser.address || '',
         lastDonationDate: newUser.lastDonationDate || null, donorId: newUser.donorId || null,
         firstName, lastName,
@@ -803,9 +789,6 @@ app.post('/api/auth/login', async (req, res) => {
         role:             user.role,
         email:            user.email || '',
         bloodType:        user.bloodType || '',
-        mobile:           user.mobile || '',
-        gender:           user.gender || '',
-        dateOfBirth:      user.dateOfBirth || null,
         isAvailable:      user.isAvailable,
         address:          user.address || '',
         lastDonationDate: user.lastDonationDate || null,
@@ -1576,7 +1559,6 @@ app.post('/api/users', authenticate, adminOnly, async (req, res) => {
     if (!phoneClash) {
       const donor = await Donor.create({
         firstName: firstName.trim(), lastName: lastName.trim(),
-        gender: '', dateOfBirth: null,
         phone: mob, email: email.trim().toLowerCase(),
         address: '', city: 'N/A', country: 'N/A',
         bloodType, isAvailable: true,
@@ -1748,8 +1730,6 @@ app.get('/api/export', authenticate, adminOnly, async (req, res) => {
         'Email':         d.email,
         'Phone':         d.phone,
         'Blood Type':    d.bloodType,
-        'Gender':        d.gender,
-        'Date of Birth': d.dateOfBirth ? new Date(d.dateOfBirth).toISOString().split('T')[0] : '',
         'Address':       d.address || '',
         'City':          d.city || '',
         'Country':       d.country || '',
@@ -1851,7 +1831,7 @@ app.get('/api/auth/profile', authenticate, async (req, res) => {
 // PUT /api/auth/profile — update own profile (username, email, bloodType + donor fields)
 app.put('/api/auth/profile', authenticate, async (req, res) => {
   try {
-    const { firstName, lastName, username, email, bloodType, gender, dateOfBirth, isAvailable, address, lastDonationDate } = req.body;
+    const { firstName, lastName, username, email, bloodType, isAvailable, address, lastDonationDate } = req.body;
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
 
@@ -1883,8 +1863,6 @@ app.put('/api/auth/profile', authenticate, async (req, res) => {
     if (lastName !== undefined && lastName.trim())   user.lastName  = lastName.trim();
 
     if (bloodType !== undefined)      user.bloodType        = bloodType ? bloodType.trim() : '';
-    if (gender !== undefined)         user.gender           = gender || '';
-    if (dateOfBirth !== undefined)    user.dateOfBirth      = dateOfBirth ? new Date(dateOfBirth) : null;
     if (isAvailable !== undefined)    user.isAvailable      = Boolean(isAvailable);
     if (address !== undefined)        user.address          = address ? address.trim() : '';
     if (lastDonationDate !== undefined) user.lastDonationDate = lastDonationDate ? new Date(lastDonationDate) : null;
@@ -1897,8 +1875,6 @@ app.put('/api/auth/profile', authenticate, async (req, res) => {
       if (firstName !== undefined && firstName.trim()) donorUpdate.firstName = user.firstName;
       if (lastName !== undefined && lastName.trim())   donorUpdate.lastName  = user.lastName;
       if (bloodType !== undefined)       donorUpdate.bloodType        = user.bloodType;
-      if (gender !== undefined)          donorUpdate.gender           = user.gender;
-      if (dateOfBirth !== undefined)     donorUpdate.dateOfBirth      = user.dateOfBirth;
       if (isAvailable !== undefined)     donorUpdate.isAvailable      = user.isAvailable;
       if (address !== undefined)         donorUpdate.address          = user.address;
       if (lastDonationDate !== undefined) donorUpdate.lastDonationDate = user.lastDonationDate;
@@ -1915,9 +1891,6 @@ app.put('/api/auth/profile', authenticate, async (req, res) => {
       email:            user.email,
       role:             user.role,
       bloodType:        user.bloodType || '',
-      mobile:           user.mobile || '',
-      gender:           user.gender || '',
-      dateOfBirth:      user.dateOfBirth || null,
       isAvailable:      user.isAvailable,
       address:          user.address || '',
       lastDonationDate: user.lastDonationDate || null,

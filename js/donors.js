@@ -60,13 +60,12 @@ function renderDonors(donors){
       <div data-testid="donor-card" data-id="${d._id}" class="donor-card">
         <div class="donor-card-top">
           <div style="display:flex;align-items:center;gap:10px">
-            <div class="donor-avatar" data-initials="${getInitials(d.firstName,d.lastName)}">${getDonorAvatar(d.gender)}</div>
+            <div class="donor-avatar" data-initials="${getInitials(d.firstName,d.lastName)}">${getDonorAvatar()}</div>
             <div class="donor-card-name"><h4>${d.firstName} ${d.lastName}</h4><p>${d.address||d.email}</p></div>
           </div>
           <div class="donor-card-bt">${d.bloodType}</div>
         </div>
         <div class="donor-card-info">
-          <div class="donor-info-item"><span>Gender</span>${d.gender}</div>
           <div class="donor-info-item"><span>Phone</span>${d.phone}</div>
           <div class="donor-info-item"><span>Status</span><span class="status-dot ${d.isAvailable?'available':'unavailable'}">${d.isAvailable?'Available':'Unavailable'}</span></div>
           <div class="donor-info-item"><span>Last Donated</span>${formatDate(d.lastDonationDate)}</div>
@@ -180,7 +179,7 @@ async function viewDonor(id){
   ];
   document.getElementById('detail-content').innerHTML=`
     <div style="display:flex;align-items:center;gap:15px;margin-bottom:18px;padding:16px;background:var(--red-light);border-radius:12px;border:1px solid rgba(200,16,46,0.1)">
-      <div class="donor-avatar" data-initials="${getInitials(d.firstName,d.lastName)}" style="width:54px;height:54px;border-radius:13px;flex-shrink:0">${getDonorAvatar(d.gender)}</div>
+      <div class="donor-avatar" data-initials="${getInitials(d.firstName,d.lastName)}" style="width:54px;height:54px;border-radius:13px;flex-shrink:0">${getDonorAvatar()}</div>
       <div style="flex:1">
         <h2 style="font-family:var(--font-display);font-size:1.55rem;color:var(--text)">${d.firstName} ${d.lastName}</h2>
         <p style="color:var(--text2);font-size:0.82rem;margin-top:2px">${d.email}</p>
