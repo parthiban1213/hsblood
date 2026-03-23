@@ -1963,9 +1963,18 @@ app.delete('/api/auth/account', authenticate, async (req, res) => {
 // ─── NOTIFICATION ROUTES ─────────────────────────────────────
 
 // GET /api/notifications — get notifications for current user
+// Only returns notifications created AFTER the user registered,
+// so newly registered users don't see pre-existing notifications.
 app.get('/api/notifications', authenticate, async (req, res) => {
   try {
-    const notifications = await Notification.find({ username: req.user.username })
+    // Fetch the user's registration date to use as a lower bound
+    const currentUser = await User.findById(req.user.id, 'createdAt').lean();
+    const userCreatedAt = currentUser ? currentUser.createdAt : new Date(0);
+
+    const notifications = await Notification.find({
+      username:  req.user.username,
+      createdAt: { $gte: userCreatedAt },
+    })
       .sort('-createdAt')
       .limit(50)
       .lean();
