@@ -59,13 +59,19 @@ function friendlyError(err, context = '') {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Helper: create in-app notifications for users with matching blood type
+// Helper: create in-app notifications — only for available users with matching blood type
 async function createInAppNotifications(requirement) {
   try {
     const { bloodType, patientName, hospital, location, unitsRequired, urgency, _id } = requirement;
 
-    // Find all users: admin gets all, users get only their blood type
-    const allUsers = await User.find({}, 'username role bloodType').lean();
+    // Only notify users (not admins) whose blood type matches AND who are available to donate
+    const matchingUsers = await User.find({
+      role:        'user',
+      bloodType:   bloodType,
+      isAvailable: true,
+    }, 'username').lean();
+
+    if (!matchingUsers.length) return;
 
     const urgencyLabel = urgency === 'Critical' ? '🚨 Critical' :
                          urgency === 'High'     ? '⚠️ High Priority' :
@@ -74,22 +80,18 @@ async function createInAppNotifications(requirement) {
     const title   = `${urgencyLabel} — ${bloodType} Blood Needed`;
     const message = `${unitsRequired} unit${unitsRequired !== 1 ? 's' : ''} of ${bloodType} needed for ${patientName} at ${hospital}${location ? ', ' + location : ''}.`;
 
-    const notifications = allUsers
-      .filter(u => u.role === 'admin' || u.bloodType === bloodType)
-      .map(u => ({
-        username:      u.username,
-        type:          'requirement',
-        title,
-        message,
-        bloodType,
-        requirementId: _id,
-        isRead:        false,
-      }));
+    const notifications = matchingUsers.map(u => ({
+      username:      u.username,
+      type:          'requirement',
+      title,
+      message,
+      bloodType,
+      requirementId: _id,
+      isRead:        false,
+    }));
 
-    if (notifications.length) {
-      await Notification.insertMany(notifications);
-      console.log(`🔔 Created ${notifications.length} notification(s) for ${bloodType} requirement`);
-    }
+    await Notification.insertMany(notifications);
+    console.log(`🔔 Created ${notifications.length} notification(s) for ${bloodType} requirement (available users only)`);
   } catch(err) {
     console.error('Notification creation error:', err.message);
   }

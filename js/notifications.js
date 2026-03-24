@@ -113,10 +113,15 @@ async function handleNotifClick(id, requirementId) {
     renderNotifBadge(unread);
     apiFetch(`/notifications/${id}/read`, { method: 'PUT' }).catch(() => {});
   }
-  // Navigate to requirements page
+  // Navigate — users go to Respond screen, admins go to Requirements
   closeNotifPanel();
-  const btn = document.getElementById('nav-requirements');
-  if (btn) showPage('requirements', btn);
+  if (currentUser?.role === 'admin') {
+    const btn = document.getElementById('nav-requirements');
+    if (btn) showPage('requirements', btn);
+  } else {
+    const btn = document.getElementById('nav-respond');
+    if (btn) showPage('respond', btn);
+  }
 }
 
 async function deleteNotif(id) {
