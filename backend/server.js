@@ -311,11 +311,23 @@ const bloodRequirementSchema = new mongoose.Schema({
   contactPhone:   { type: String, required: true },
   bloodType:      { type: String, required: true, enum: ['A+','A-','B+','B-','AB+','AB-','O+','O-'] },
   unitsRequired:  { type: Number, required: true, min: 1 },
+  remainingUnits: { type: Number, default: null }, // null = use unitsRequired as baseline
   urgency:        { type: String, enum: ['Critical','High','Medium','Low'], default: 'Medium' },
   requiredBy:     { type: Date },
   notes:          { type: String, default: '' },
   status:         { type: String, enum: ['Open','Fulfilled','Cancelled'], default: 'Open' },
   createdBy:      { type: String, default: '' },
+  donations: [{
+    donorUsername: { type: String, required: true },
+    donorName:     { type: String, default: '' },
+    bloodType:     { type: String, default: '' },
+    donatedAt:     { type: Date, default: Date.now },
+    note:          { type: String, default: '' }
+  }],
+  declines: [{
+    donorUsername: { type: String },
+    declinedAt:    { type: Date, default: Date.now }
+  }],
   createdAt:      { type: Date, default: Date.now },
   updatedAt:      { type: Date, default: Date.now }
 });
@@ -1236,13 +1248,19 @@ app.post('/api/requirements', authenticate, async (req, res) => {
   }
 });
 
-// Update requirement — admin only
-app.put('/api/requirements/:id', authenticate, adminOnly, async (req, res) => {
+// Update requirement — admin OR the user who created it
+app.put('/api/requirements/:id', authenticate, async (req, res) => {
   try {
-    req.body.updatedAt = new Date();
-    const req_ = await BloodRequirement.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const req_ = await BloodRequirement.findById(req.params.id);
     if (!req_) return res.status(404).json({ success: false, error: 'Requirement not found' });
-    res.json({ success: true, data: req_, message: 'Requirement updated successfully!' });
+    const isAdmin   = req.user.role === 'admin';
+    const isCreator = req_.createdBy === req.user.username;
+    if (!isAdmin && !isCreator) {
+      return res.status(403).json({ success: false, error: 'You can only edit requirements you created.' });
+    }
+    req.body.updatedAt = new Date();
+    const updated = await BloodRequirement.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    res.json({ success: true, data: updated, message: 'Requirement updated successfully!' });
   } catch(err) { res.status(400).json({ success: false, error: friendlyError(err, 'Validation') }); }
 });
 
@@ -1254,6 +1272,72 @@ app.delete('/api/requirements/:id', authenticate, adminOnly, async (req, res) =>
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
+
+// ── MY REQUIREMENTS ──────────────────────────────────────────
+app.get('/api/my-requirements', authenticate, async (req, res) => {
+  try {
+    const reqs = await BloodRequirement.find({ createdBy: req.user.username }).sort('-createdAt');
+    const enriched = reqs.map(r => {
+      const obj = r.toObject();
+      obj.remainingUnits = (obj.remainingUnits != null) ? obj.remainingUnits : obj.unitsRequired;
+      obj.donationsCount = (obj.donations || []).length;
+      return obj;
+    });
+    res.json({ success: true, data: enriched, count: enriched.length });
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
+});
+
+// ── DONATE ───────────────────────────────────────────────────
+app.post('/api/requirements/:id/donate', authenticate, async (req, res) => {
+  try {
+    const req_ = await BloodRequirement.findById(req.params.id);
+    if (!req_) return res.status(404).json({ success: false, error: 'Requirement not found.' });
+    if (req_.status !== 'Open') return res.status(400).json({ success: false, error: 'This requirement is no longer open.' });
+    const userBT = req.user.bloodType || '';
+    if (userBT && req_.bloodType !== userBT) return res.status(400).json({ success: false, error: 'Blood type mismatch. Requirement needs ' + req_.bloodType + ', your type is ' + userBT + '.' });
+    if (req.user.isAvailable === false) return res.status(400).json({ success: false, error: 'You are marked unavailable. Please update your profile.' });
+    if (req_.donations.some(d => d.donorUsername === req.user.username)) return res.status(400).json({ success: false, error: 'You have already responded to this requirement.' });
+    const current = (req_.remainingUnits != null) ? req_.remainingUnits : req_.unitsRequired;
+    if (current <= 0) return res.status(400).json({ success: false, error: 'This requirement has already been fully fulfilled.' });
+    req_.donations.push({ donorUsername: req.user.username, donorName: ((req.user.firstName || '') + ' ' + (req.user.lastName || '')).trim() || req.user.username, bloodType: userBT || req_.bloodType, donatedAt: new Date(), note: req.body.note || '' });
+    req_.remainingUnits = current - 1;
+    if (req_.remainingUnits <= 0) { req_.remainingUnits = 0; req_.status = 'Fulfilled'; }
+    req_.updatedAt = new Date();
+    await req_.save();
+    res.json({ success: true, message: req_.status === 'Fulfilled' ? 'This requirement is now fully fulfilled.' : 'Donation recorded! ' + req_.remainingUnits + ' unit(s) still needed.', data: { remainingUnits: req_.remainingUnits, status: req_.status } });
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
+});
+
+// ── DECLINE ──────────────────────────────────────────────────
+app.post('/api/requirements/:id/decline', authenticate, async (req, res) => {
+  try {
+    const req_ = await BloodRequirement.findById(req.params.id);
+    if (!req_) return res.status(404).json({ success: false, error: 'Requirement not found.' });
+    if (!req_.declines.some(d => d.donorUsername === req.user.username)) { req_.declines.push({ donorUsername: req.user.username, declinedAt: new Date() }); await req_.save(); }
+    res.json({ success: true, message: 'Response recorded.' });
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
+});
+
+// ── MY DONATIONS ─────────────────────────────────────────────
+app.get('/api/my-donations', authenticate, async (req, res) => {
+  try {
+    const reqs = await BloodRequirement.find({ 'donations.donorUsername': req.user.username }).sort('-updatedAt');
+    const history = reqs.map(r => {
+      const d = r.donations.find(d => d.donorUsername === req.user.username);
+      return { requirementId: r._id, patientName: r.patientName, hospital: r.hospital, location: r.location, bloodType: r.bloodType, unitsRequired: r.unitsRequired, remainingUnits: (r.remainingUnits != null) ? r.remainingUnits : r.unitsRequired, status: r.status, urgency: r.urgency, donatedAt: d ? d.donatedAt : null, note: d ? d.note : '' };
+    });
+    res.json({ success: true, data: history, count: history.length });
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
+});
+
+// ── REQUIREMENT DONORS (admin) ────────────────────────────────
+app.get('/api/requirements/:id/donors', authenticate, adminOnly, async (req, res) => {
+  try {
+    const req_ = await BloodRequirement.findById(req.params.id);
+    if (!req_) return res.status(404).json({ success: false, error: 'Requirement not found.' });
+    res.json({ success: true, data: req_.donations || [], count: (req_.donations || []).length });
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
+});
 // Admin only — bulk upload requirements from Excel
 app.post('/api/requirements/bulk', authenticate, adminOnly, async (req, res) => {
   try {
@@ -2021,4 +2105,4 @@ app.listen(PORT, () => {
   console.log(`   Admin  →  ${process.env.ADMIN_USERNAME || 'admin'} / ${process.env.ADMIN_PASSWORD || 'admin123'}`);
   console.log(`   User   →  ${process.env.USER_USERNAME  || 'user'}  / ${process.env.USER_PASSWORD  || 'user123'}`);
   console.log(`─────────────────────────────────────────`);
-});
+});// Appended routes — My Requirements, Donate, Decline, My Donations, Requirement Donors

@@ -1392,3 +1392,154 @@ thead th{font-size:var(--fs-xs)}
   .modal-close { width: 36px; height: 36px; }
   .notif-item-del { min-width: 36px; min-height: 36px; }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   NEW FEATURES — My Requests, Respond, Donation History, Status Popup
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Progress Bar ── */
+.prog-wrap {
+  height: 7px;
+  background: var(--border);
+  border-radius: 99px;
+  overflow: hidden;
+  min-width: 80px;
+}
+.prog-bar {
+  height: 100%;
+  background: var(--red);
+  border-radius: 99px;
+  transition: width 0.5s ease;
+  min-width: 3px;
+}
+
+/* ── Fulfillment Badge ── */
+.fulfill-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: var(--font-ui);
+  white-space: nowrap;
+}
+.status-fulfilled  { background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0; }
+.status-partial    { background: #FFFBEB; color: #B45309; border: 1px solid #FDE68A; }
+.status-pending    { background: #EFF6FF; color: #2563EB; border: 1px solid #BFDBFE; }
+.status-cancelled  { background: #F8FAFC; color: #94A3B8; border: 1px solid #E2E8F0; }
+
+/* ── Status Popup Stat Cards ── */
+.status-stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 8px;
+  text-align: center;
+}
+.status-stat-val {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.status-stat-label {
+  font-size: 0.7rem;
+  color: var(--text3);
+  font-family: var(--font-ui);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Respond Cards ── */
+.respond-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+.respond-card:hover {
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
+}
+.respond-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.respond-card-patient {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.respond-card-hospital {
+  font-size: 0.78rem;
+  color: var(--text2);
+  margin-top: 2px;
+}
+.respond-card-loc {
+  font-size: 0.72rem;
+  color: var(--text3);
+  margin-top: 2px;
+}
+.respond-card-prog {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.respond-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.respond-done-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #15803D;
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-family: var(--font-ui);
+}
+.respond-declined-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #94A3B8;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-family: var(--font-ui);
+}
+
+/* ── Warning Banner ── */
+.warn-banner {
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  color: #92400E;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 0.82rem;
+  margin-bottom: 14px;
+}
+.warn-banner a {
+  color: var(--red);
+  font-weight: 600;
+}
+
+/* ── Modal footer ── */
+.modal-footer {
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 0 0 16px 16px;
+}
+

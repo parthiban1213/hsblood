@@ -87,4 +87,8 @@ async function loadDashboard(){
         <button id="btn-dashboard-donors-retry" class="btn btn-outline btn-sm" onclick="loadDashboard()">↻ Retry</button>
       </div>`;
   }
+  // Update Respond badge for non-admin users
+  if (typeof updateRespondBadge === 'function' && currentUser?.role !== 'admin') {
+    updateRespondBadge();
+  }
 }

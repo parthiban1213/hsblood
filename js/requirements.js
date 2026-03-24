@@ -56,41 +56,65 @@ const URGENCY_ICON = {Critical:'🔴',High:'🟠',Medium:'🟡',Low:'🟢'};
 function renderRequirements(data){
   const el = document.getElementById('req-view');
   if(!data.length){
-    el.innerHTML=`<div class="empty-state"><div class="emoji">📋</div><h4>No requirements found</h4><p>No blood requirements match your filters.</p></div>`;
+    el.innerHTML = '<div class="empty-state"><div class="emoji">📋</div><h4>No requirements found</h4><p>No blood requirements match your filters.</p></div>';
     return;
   }
-  el.innerHTML=`<div class="table-wrap"><table>
-    <thead><tr>
-      <th>Patient</th><th>Hospital</th><th>Blood Type</th><th>Units</th>
-      <th>Urgency</th><th>Required By</th><th>Status</th><th>Actions</th>
-    </tr></thead>
-    <tbody>${data.map(r=>`<tr data-testid="req-row" data-id="${r._id}">
-      <td class="bold">${r.patientName}</td>
-      <td>${r.hospital}</td>
-      <td><span class="blood-badge">${r.bloodType}</span></td>
-      <td style="font-family:var(--font-ui);font-weight:700;color:var(--text)">${r.unitsRequired}</td>
-      <td><span class="urgency-badge urgency-${r.urgency}">${URGENCY_ICON[r.urgency]||''} ${r.urgency}</span></td>
-      <td>${formatDate(r.requiredBy)}</td>
-      <td>
-        ${isAdmin()
-          ? `<select data-testid="req-status-select" data-id="${r._id}" class="req-status-select s-${r.status}"
-               onchange="quickUpdateStatus('${r._id}', this)"
-               title="Click to change status">
-               <option value="Open"      ${r.status==='Open'      ?'selected':''}>Open</option>
-               <option value="Fulfilled" ${r.status==='Fulfilled' ?'selected':''}>Fulfilled</option>
-               <option value="Cancelled" ${r.status==='Cancelled' ?'selected':''}>Cancelled</option>
-             </select>`
-          : `<span class="req-status-badge req-status-${r.status}">${r.status}</span>`
-        }
-      </td>
-      <td>
-        <div style="display:flex;gap:5px;align-items:center">
-          <button data-testid="req-view-btn" data-id="${r._id}" class="btn btn-outline btn-sm" onclick="viewRequirement('${r._id}')" title="View details">👁</button>
-          ${isAdmin()?`<button data-testid="req-edit-btn" data-id="${r._id}" class="btn btn-outline btn-sm" onclick="editRequirement('${r._id}')" title="Edit full requirement">✏️</button>
-          <button data-testid="req-delete-btn" data-id="${r._id}" class="btn btn-danger btn-sm" onclick="deleteRequirement('${r._id}','${r.patientName}')" title="Delete">🗑</button>`:''}
-        </div>
-      </td>
-    </tr>`).join('')}</tbody></table></div>`;
+
+  function esc(s){ return String(s).replace(/'/g, "\\'"); }
+
+  const rows = data.map(function(r){
+    const donated   = (r.donations || []).length;
+    const total     = r.unitsRequired;
+    const remaining = (r.remainingUnits != null) ? r.remainingUnits : total;
+    const pct       = total > 0 ? Math.round((donated / total) * 100) : 0;
+    const id        = r._id;
+
+    const selOpts = ['Open','Fulfilled','Cancelled'].map(function(s){
+      return '<option value="' + s + '"' + (r.status===s?' selected':'') + '>' + s + '</option>';
+    }).join('');
+
+    const statusCell = isAdmin()
+      ? '<select data-testid="req-status-select" data-id="' + id + '" class="req-status-select s-' + r.status + '" onchange="quickUpdateStatus(\'' + id + '\', this)" title="Click to change status">' + selOpts + '</select>'
+      : '<span class="req-status-badge req-status-' + r.status + '">' + r.status + '</span>';
+
+    const statusBtn = r.status === 'Open'
+      ? '<button class="btn btn-outline btn-sm" onclick="openStatusPopup(\'' + id + '\')" title="View status">📊</button>'
+      : '';
+
+    const canEdit = isAdmin() || r.createdBy === currentUser?.username;
+
+    const adminBtns = canEdit
+      ? '<button data-testid="req-edit-btn" class="btn btn-outline btn-sm" onclick="editRequirement(\'' + id + '\')" title="Edit">✏️</button>'
+        + (isAdmin() ? '<button data-testid="req-delete-btn" class="btn btn-danger btn-sm" onclick="deleteRequirement(\'' + id + '\',\'' + esc(r.patientName) + '\')" title="Delete">🗑</button>' : '')
+      : '';
+
+    return '<tr data-testid="req-row" data-id="' + id + '">'
+      + '<td class="bold">' + r.patientName + '</td>'
+      + '<td>' + r.hospital + '</td>'
+      + '<td><span class="blood-badge">' + r.bloodType + '</span></td>'
+      + '<td style="font-family:var(--font-ui);font-weight:700;color:var(--text)">' + total + '</td>'
+      + '<td style="min-width:100px">'
+        + '<div class="prog-wrap"><div class="prog-bar" style="width:' + pct + '%"></div></div>'
+        + '<div style="font-size:0.66rem;color:var(--text3);margin-top:2px;font-family:var(--font-ui)">' + donated + '/' + total + ' donated</div>'
+      + '</td>'
+      + '<td><span class="urgency-badge urgency-' + r.urgency + '">' + (URGENCY_ICON[r.urgency]||'') + ' ' + r.urgency + '</span></td>'
+      + '<td>' + formatDate(r.requiredBy) + '</td>'
+      + '<td>' + statusCell + '</td>'
+      + '<td><div style="display:flex;gap:5px;align-items:center">'
+        + statusBtn
+        + '<button data-testid="req-view-btn" class="btn btn-outline btn-sm" onclick="viewRequirement(\'' + id + '\')" title="View details">👁</button>'
+        + adminBtns
+      + '</div></td>'
+      + '</tr>';
+  }).join('');
+
+  el.innerHTML = '<div class="table-wrap"><table>'
+    + '<thead><tr>'
+    + '<th>Patient</th><th>Hospital</th><th>Blood Type</th><th>Units</th><th>Progress</th>'
+    + '<th>Urgency</th><th>Required By</th><th>Status</th><th>Actions</th>'
+    + '</tr></thead>'
+    + '<tbody>' + rows + '</tbody>'
+    + '</table></div>';
 }
 
 function openReqModal(){
@@ -108,10 +132,11 @@ function openReqModal(){
 }
 
 async function editRequirement(id){
-  if(!isAdmin()){ showToast('Admin access required.','warn'); return; }
   const res=await apiFetch('/requirements/'+id);
-  if(!res.success){showToast(res.error||'Operation failed. Please try again.','error');return;}
+  if(!res.success){showToast(res.error||'Operation failed.','error');return;}
   const r=res.data;
+  const canEdit = isAdmin() || r.createdBy === currentUser?.username;
+  if(!canEdit){ showToast('You can only edit requirements you created.','warn'); return; }
   document.getElementById('req-id').value=r._id;
   document.getElementById('req-modal-title').textContent='Edit Blood Requirement';
   document.getElementById('req-patientName').value=r.patientName||'';
@@ -131,8 +156,6 @@ async function editRequirement(id){
 async function saveRequirement(e){
   if(e) e.preventDefault();
   const id=document.getElementById('req-id').value;
-  // Users can add but not edit existing requirements
-  if(id && !isAdmin()){ showToast('Editing requirements requires Admin access.','warn'); return; }
   const btn=document.getElementById('save-req-btn');
   btn.disabled=true; btn.textContent='Saving…';
   const body={
@@ -148,6 +171,8 @@ async function saveRequirement(e){
     status:        document.getElementById('req-status').value,
     notes:         document.getElementById('req-notes').value,
   };
+  // Initialise remainingUnits for new requirements so progress tracking works from day 1
+  if (!id) body.remainingUnits = body.unitsRequired;
   try {
     const res = id
       ? await apiFetch('/requirements/'+id,{method:'PUT',body:JSON.stringify(body)})
@@ -157,6 +182,8 @@ async function saveRequirement(e){
       showToast(res.message||'Saved!');
       closeModal('req-modal');
       loadRequirements();
+      // Also refresh My Requests page if it's loaded
+      if (typeof loadMyRequests === 'function') loadMyRequests();
       // For new requirements, refresh notifications immediately — the backend
       // now awaits notification creation before responding, so a short delay
       // is enough to guarantee the new notifications are in the DB.
@@ -178,58 +205,113 @@ async function saveRequirement(e){
 }
 
 async function viewRequirement(id){
-  const res=await apiFetch('/requirements/'+id);
-  if(!res.success){showToast(res.error||'Operation failed. Please try again.','error');return;}
-  const r=res.data;
-  document.getElementById('req-detail-content').innerHTML=`
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px;padding:16px;background:var(--red-light);border-radius:12px;border:1px solid rgba(200,16,46,0.1)">
-      <div style="flex:1">
-        <h2 style="font-family:var(--font-display);font-size:1.45rem;color:var(--text)">${r.patientName}</h2>
-        <p style="color:var(--text2);font-size:0.82rem;margin-top:3px">🏥 ${r.hospital}</p>
-        ${r.location?`<p style="color:var(--text2);font-size:0.82rem;margin-top:2px">📍 ${r.location}</p>`:''}
-        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
-          <span class="urgency-badge urgency-${r.urgency}">${URGENCY_ICON[r.urgency]} ${r.urgency}</span>
-          ${isAdmin()
-            ? `<div style="display:flex;gap:5px;flex-wrap:wrap">
-                ${['Open','Fulfilled','Cancelled'].map(s=>`
-                  <button
-                    data-testid="req-quick-status-btn" data-id="${r._id}" data-status="${s}"
-                    class="btn btn-sm"
-                    style="padding:3px 10px;font-size:0.7rem;${r.status===s
-                      ? s==='Open'      ? 'background:#EFF6FF;color:#2563EB;border:1.5px solid #BFDBFE;'
-                      : s==='Fulfilled' ? 'background:#F0FDF4;color:#15803D;border:1.5px solid #BBF7D0;'
-                      :                  'background:#F8FAFC;color:#94A3B8;border:1.5px solid #E2E8F0;'
-                      : 'background:#fff;color:var(--text3);border:1.5px solid var(--border);'}"
-                    onclick="quickUpdateStatusFromModal('${r._id}','${s}',this)"
-                    ${r.status===s ? 'disabled' : ''}
-                  >${s==='Open'?'🔵':s==='Fulfilled'?'✅':'❌'} ${s}</button>
-                `).join('')}
-               </div>`
-            : `<span class="req-status-badge req-status-${r.status}">${r.status}</span>`
-          }
-        </div>
-      </div>
-      <div style="text-align:right;flex-shrink:0">
-        <div style="font-family:var(--font-display);font-size:2.5rem;font-weight:700;color:var(--red);line-height:1">${r.bloodType}</div>
-        <div style="font-family:var(--font-ui);font-size:0.75rem;color:var(--text2);margin-top:3px">${r.unitsRequired} unit${r.unitsRequired!==1?'s':''} needed</div>
-      </div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-      <div class="detail-field"><div class="dk">Contact Person</div><div class="dv">${r.contactPerson}</div></div>
-      <div class="detail-field"><div class="dk">Phone</div><div class="dv">${r.contactPhone}</div></div>
-      ${r.location?`<div class="detail-field"><div class="dk">Location</div><div class="dv">📍 ${r.location}</div></div>`:''}
-      <div class="detail-field"><div class="dk">Required By</div><div class="dv">${formatDate(r.requiredBy)}</div></div>
-      <div class="detail-field"><div class="dk">Created By</div><div class="dv">${r.createdBy||'—'}</div></div>
-      <div class="detail-field"><div class="dk">Created On</div><div class="dv">${formatDate(r.createdAt)}</div></div>
-      <div class="detail-field"><div class="dk">Last Updated</div><div class="dv">${formatDate(r.updatedAt)}</div></div>
-      ${r.notes?`<div class="detail-field" style="grid-column:1/-1"><div class="dk">Notes</div><div class="dv">${r.notes}</div></div>`:''}
-    </div>
-    <div style="margin-top:6px;display:flex;gap:8px;justify-content:flex-end">
-      ${isAdmin()?`
-      <button data-testid="req-detail-edit-btn" data-id="${r._id}" class="btn btn-outline" onclick="closeModal('req-detail-modal');editRequirement('${r._id}')">✏️ Edit</button>
-      <button data-testid="req-detail-delete-btn" data-id="${r._id}" class="btn btn-danger" onclick="closeModal('req-detail-modal');deleteRequirement('${r._id}','${r.patientName}')">🗑 Delete</button>`
-      :`<span class="lock-badge">🔒 View only — editing requires Admin access</span>`}
-    </div>`;
+  const res = await apiFetch('/requirements/'+id);
+  if(!res.success){ showToast(res.error||'Operation failed.','error'); return; }
+  const r = res.data;
+  const donated   = (r.donations||[]).length;
+  const total     = r.unitsRequired;
+  const remaining = (r.remainingUnits!=null) ? r.remainingUnits : total;
+  const pct       = total>0 ? Math.round((donated/total)*100) : 0;
+  const barColor  = pct===100 ? '#15803D' : 'var(--red)';
+  const q = function(s){ return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); };
+
+  // Admin: fetch donor list
+  var donorListHtml = '';
+  if(isAdmin()){
+    const dRes = await apiFetch('/requirements/'+id+'/donors');
+    if(dRes.success && dRes.data.length){
+      const donorRows = dRes.data.map(function(d){
+        const initial = (d.donorName||d.donorUsername||'?')[0].toUpperCase();
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 13px;background:var(--surface);border-radius:9px;border:1px solid var(--border);margin-bottom:7px">'
+          +'<div style="display:flex;align-items:center;gap:10px">'
+          +'<div style="width:32px;height:32px;border-radius:9px;background:var(--red-light);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--red);font-size:0.82rem;font-family:var(--font-ui);flex-shrink:0">'+initial+'</div>'
+          +'<div><div style="font-size:0.84rem;font-weight:600;color:var(--text)">'+(d.donorName||d.donorUsername)+'</div>'
+          +'<div style="font-size:0.72rem;color:var(--text3)">@'+d.donorUsername+'</div></div>'
+          +'</div>'
+          +'<div style="text-align:right;flex-shrink:0">'
+          +'<span class="blood-badge" style="font-size:0.68rem">'+(d.bloodType||'—')+'</span>'
+          +'<div style="font-size:0.7rem;color:var(--text3);margin-top:3px">'+formatDate(d.donatedAt)+'</div>'
+          +'</div></div>';
+      }).join('');
+      donorListHtml = '<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">'
+        +'<div style="font-size:0.75rem;font-weight:700;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.06em">🩸 Donors Who Responded ('+dRes.data.length+')</div>'
+        +donorRows+'</div>';
+    } else if(dRes.success){
+      donorListHtml = '<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;font-size:0.8rem;color:var(--text3)">No donors have responded yet.</div>';
+    }
+  }
+
+  // Status buttons for admin
+  const statusBtns = ['Open','Fulfilled','Cancelled'].map(function(s){
+    const active = r.status===s;
+    const col = active
+      ? (s==='Open'?'background:#EFF6FF;color:#2563EB;border:1.5px solid #BFDBFE;'
+        :s==='Fulfilled'?'background:#F0FDF4;color:#15803D;border:1.5px solid #BBF7D0;'
+        :'background:#F8FAFC;color:#94A3B8;border:1.5px solid #E2E8F0;')
+      : 'background:#fff;color:var(--text3);border:1.5px solid var(--border);';
+    const icon = s==='Open'?'🔵':s==='Fulfilled'?'✅':'❌';
+    return '<button class="btn btn-sm" style="padding:3px 10px;font-size:0.7rem;'+col+'"'
+      +' onclick="quickUpdateStatusFromModal(\'' + r._id + '\',\'' + s + '\',this)"'
+      +(active?' disabled':'')+'>'+icon+' '+s+'</button>';
+  }).join('');
+
+  const statusWidget = isAdmin()
+    ? '<div style="display:flex;gap:5px;flex-wrap:wrap">'+statusBtns+'</div>'
+    : '<span class="req-status-badge req-status-'+r.status+'">'+r.status+'</span>';
+
+  const canEdit = isAdmin() || r.createdBy === currentUser?.username;
+
+  const editDeleteBtns = canEdit
+    ? '<button class="btn btn-outline" onclick="closeModal(\'req-detail-modal\');editRequirement(\''+r._id+'\')">✏️ Edit</button>'
+      + (isAdmin() ? '<button class="btn btn-danger" onclick="closeModal(\'req-detail-modal\');deleteRequirement(\''+r._id+'\',\''+q(r.patientName)+'\')">🗑 Delete</button>' : '')
+    : '<span class="lock-badge">🔒 View only</span>';
+
+  const locationLine  = r.location ? '<p style="color:var(--text2);font-size:0.82rem;margin-top:2px">📍 '+r.location+'</p>' : '';
+  const locationField = r.location ? '<div class="detail-field"><div class="dk">Location</div><div class="dv">📍 '+r.location+'</div></div>' : '';
+  const notesField    = r.notes    ? '<div class="detail-field" style="grid-column:1/-1"><div class="dk">Notes</div><div class="dv">'+r.notes+'</div></div>' : '';
+
+  document.getElementById('req-detail-content').innerHTML =
+    '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px;padding:16px;background:var(--red-light);border-radius:12px;border:1px solid rgba(200,16,46,0.1)">'
+      +'<div style="flex:1">'
+        +'<h2 style="font-family:var(--font-display);font-size:1.45rem;color:var(--text)">'+r.patientName+'</h2>'
+        +'<p style="color:var(--text2);font-size:0.82rem;margin-top:3px">🏥 '+r.hospital+'</p>'
+        +locationLine
+        +'<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">'
+          +'<span class="urgency-badge urgency-'+r.urgency+'">'+(URGENCY_ICON[r.urgency]||'')+' '+r.urgency+'</span>'
+          +statusWidget
+        +'</div>'
+      +'</div>'
+      +'<div style="text-align:right;flex-shrink:0">'
+        +'<div style="font-family:var(--font-display);font-size:2.5rem;font-weight:700;color:var(--red);line-height:1">'+r.bloodType+'</div>'
+        +'<div style="font-family:var(--font-ui);font-size:0.75rem;color:var(--text2);margin-top:3px">'+r.unitsRequired+' unit'+(r.unitsRequired!==1?'s':'')+' needed</div>'
+      +'</div>'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">'
+      +'<div class="status-stat-card"><div class="status-stat-val" style="color:var(--red)">'+total+'</div><div class="status-stat-label">Required</div></div>'
+      +'<div class="status-stat-card"><div class="status-stat-val" style="color:#15803D">'+donated+'</div><div class="status-stat-label">Donated</div></div>'
+      +'<div class="status-stat-card"><div class="status-stat-val" style="color:#D97706">'+remaining+'</div><div class="status-stat-label">Remaining</div></div>'
+    +'</div>'
+    +'<div style="margin-bottom:14px">'
+      +'<div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text3);margin-bottom:5px">'
+        +'<span>Fulfillment progress</span><span style="font-weight:700;color:var(--text)">'+pct+'%</span>'
+      +'</div>'
+      +'<div style="height:9px;background:var(--border);border-radius:99px;overflow:hidden">'
+        +'<div style="height:100%;width:'+pct+'%;background:'+barColor+';border-radius:99px;transition:width 0.6s ease"></div>'
+      +'</div>'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">'
+      +'<div class="detail-field"><div class="dk">Contact Person</div><div class="dv">'+r.contactPerson+'</div></div>'
+      +'<div class="detail-field"><div class="dk">Phone</div><div class="dv">'+r.contactPhone+'</div></div>'
+      +locationField
+      +'<div class="detail-field"><div class="dk">Required By</div><div class="dv">'+formatDate(r.requiredBy)+'</div></div>'
+      +'<div class="detail-field"><div class="dk">Created By</div><div class="dv">'+(r.createdBy||'—')+'</div></div>'
+      +'<div class="detail-field"><div class="dk">Created On</div><div class="dv">'+formatDate(r.createdAt)+'</div></div>'
+      +'<div class="detail-field"><div class="dk">Last Updated</div><div class="dv">'+formatDate(r.updatedAt)+'</div></div>'
+      +notesField
+    +'</div>'
+    +donorListHtml
+    +'<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">'+editDeleteBtns+'</div>';
+
   openModal('req-detail-modal');
 }
 
