@@ -64,11 +64,13 @@ try {
 // Called when a new requirement is created.
 // Topic naming matches the Flutter app: A+ → blood_A_pos, O- → blood_O_neg
 async function sendFcmPushForRequirement(requirement) {
-  if (!firebaseAdmin) return;
+  if (!firebaseAdmin) {
+    console.warn('[FCM] Skipped — Firebase Admin not initialised. Set FIREBASE_SERVICE_ACCOUNT_JSON env var.');
+    return;
+  }
   try {
     const { bloodType, patientName, hospital, urgency, unitsRequired, _id } = requirement;
 
-    // Sanitise blood type for FCM topic (no +/- allowed in topic names)
     const topic = 'blood_' + bloodType.replace('+', '_pos').replace('-', '_neg');
 
     const urgencyLabel = urgency === 'Critical' ? '🚨 Critical'
@@ -79,51 +81,49 @@ async function sendFcmPushForRequirement(requirement) {
     const title = `${urgencyLabel} — ${bloodType} Blood Needed`;
     const body  = `${unitsRequired} unit${unitsRequired !== 1 ? 's' : ''} needed for ${patientName} at ${hospital}`;
 
-    // Build the message object used for both topic sends.
-    // NOTE: clickAction is removed — it was deprecated in newer Firebase SDK
-    // and could silently prevent delivery on Android 13+.
-    // The data payload carries the requirementId so the Flutter app can
-    // navigate to the correct screen when the notification is tapped.
-    const buildMessage = (topicName) => ({
+    // Build message — clickAction removed (deprecated in Firebase SDK v11+,
+    // caused silent delivery failures on Android 13+).
+    const buildMsg = (topicName) => ({
       topic: topicName,
       notification: { title, body },
       data: {
+        type:          'requirement',
         requirementId: _id ? _id.toString() : '',
         bloodType,
-        type: 'requirement',
       },
       android: {
         priority: 'high',
         notification: {
-          channelId:       'bloodconnect_alerts',
-          color:           '#C8102E',
-          sound:           'default',
+          channelId:            'bloodconnect_alerts',
+          color:                '#C8102E',
+          sound:                'default',
           notificationPriority: 'PRIORITY_HIGH',
-          visibility:      'PUBLIC',
+          visibility:           'PUBLIC',
         },
       },
       apns: {
         headers: { 'apns-priority': '10' },
-        payload: {
-          aps: { sound: 'default', badge: 1, contentAvailable: true },
-        },
+        payload: { aps: { sound: 'default', badge: 1 } },
       },
     });
 
-    // Send to blood-type topic first (most targeted)
-    await firebaseAdmin.messaging().send(buildMessage(topic));
+    await firebaseAdmin.messaging().send(buildMsg(topic));
+    console.log(`🔔 FCM → topic "${topic}"`);
 
-    // Then broadcast to 'all' topic
-    await firebaseAdmin.messaging().send(buildMessage('all'));
+    await firebaseAdmin.messaging().send(buildMsg('all'));
+    console.log(`🔔 FCM → topic "all"`);
 
-    console.log(`🔔 FCM push sent → topic "${topic}" + "all" for ${bloodType} requirement`);
   } catch(err) {
-    // Log the full error — common causes:
-    //   "Requested entity was not found" → no devices subscribed to topic yet
-    //   "SenderId mismatch"              → wrong google-services.json on device
-    console.error('FCM push error:', err.message);
+    // Common errors:
+    //  "Requested entity was not found" = no devices subscribed to this topic yet (normal on first use)
+    //  "SenderId mismatch" = wrong google-services.json on device
+    //  "Invalid registration" = device uninstalled the app
+    console.error('[FCM] Push error:', err.message);
   }
 }
+
+// Add FCM token endpoint (saves device token for targeted pushes)
+// POST /api/auth/fcm-token
 
 // ── FRIENDLY ERROR HELPER ────────────────────────────────────────────────────
 // Converts raw database/system errors into readable messages for users.
@@ -336,7 +336,7 @@ const userSchema = new mongoose.Schema({
   firstName:        { type: String, default: '', trim: true },
   lastName:         { type: String, default: '', trim: true },
   donorId:          { type: mongoose.Schema.Types.ObjectId, ref: 'Donor', default: null },
-  fcmToken:         { type: String, default: '' },  // Firebase Cloud Messaging device token
+  fcmToken:         { type: String, default: '' },
   createdAt:        { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', userSchema);
@@ -1419,7 +1419,12 @@ app.post('/api/requirements/:id/donate', authenticate, async (req, res) => {
     // ── SMS to requirement creator (contactPhone) ─────────────
     // Notify the person who created the requirement that a donor has stepped up.
     // Runs in background — does not block the response.
-    if (twilioClient && req_.contactPhone) {
+    console.log(`[Donate] contactPhone="${req_.contactPhone}", twilioReady=${!!twilioClient}`);
+    if (!twilioClient) {
+      console.warn('[Donate] SMS skipped — Twilio not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER env vars.');
+    } else if (!req_.contactPhone || req_.contactPhone.trim() === '') {
+      console.warn('[Donate] SMS skipped — requirement has no contactPhone stored.');
+    } else {
       try {
         let creatorPhone = req_.contactPhone.replace(/[\s\-()]/g, '');
         if (!creatorPhone.startsWith('+')) creatorPhone = '+91' + creatorPhone;
@@ -1434,9 +1439,9 @@ app.post('/api/requirements/:id/donate', authenticate, async (req, res) => {
           from: TWILIO_FROM,
           to:   creatorPhone,
         }).then(() => {
-          console.log(`📱 SMS sent to requirement creator (${creatorPhone}) for donation by ${req.user.username}`);
-        }).catch(err => {
-          console.error('Creator SMS error:', err.message);
+          console.log(`📱 SMS sent to creator (${creatorPhone}) for donation by ${req.user.username}`);
+        }).catch(smsErr => {
+          console.error(`Creator SMS failed (to ${creatorPhone}):`, smsErr.message);
         });
       } catch (smsErr) {
         console.error('Creator SMS setup error:', smsErr.message);
@@ -2021,21 +2026,6 @@ app.get('/api/export', authenticate, adminOnly, async (req, res) => {
     res.json({ success: true, data: result });
   } catch(err) {
     res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
-  }
-});
-
-// ─── FCM TOKEN ──────────────────────────────────────────────────
-// POST /api/auth/fcm-token — save FCM device token for targeted push notifications.
-// Called by the Flutter app after login whenever the FCM token is issued or rotated.
-app.post('/api/auth/fcm-token', authenticate, async (req, res) => {
-  try {
-    const { token } = req.body;
-    if (!token) return res.status(400).json({ success: false, error: 'Token is required.' });
-    await User.findByIdAndUpdate(req.user.id, { fcmToken: token });
-    console.log(`📲 FCM token saved for user: ${req.user.username}`);
-    res.json({ success: true });
-  } catch(err) {
-    res.status(500).json({ success: false, error: friendlyError(err, 'FCMToken') });
   }
 });
 
