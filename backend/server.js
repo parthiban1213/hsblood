@@ -22,6 +22,109 @@ if (TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM) {
   console.log('ℹ️  Twilio not configured — SMS notifications disabled');
 }
 
+// ── Firebase Admin SDK (FCM push notifications) ──────────────
+// Set FIREBASE_SERVICE_ACCOUNT_JSON env var to the contents of
+// your Firebase service account JSON, OR place the file at
+// ./firebase-service-account.json on the server.
+//
+// To get the service account JSON:
+//   Firebase Console → Project Settings → Service Accounts
+//   → Generate New Private Key → download the JSON file.
+//
+// On Render: Settings → Environment → add secret file or env var.
+let firebaseAdmin = null;
+try {
+  const admin = require('firebase-admin');
+  let serviceAccount = null;
+
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    // Env var approach (recommended for Render/cloud deployments)
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  } else {
+    // Local file approach (for local development)
+    try {
+      serviceAccount = require('./firebase-service-account.json');
+    } catch (_) {}
+  }
+
+  if (serviceAccount) {
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+    firebaseAdmin = admin;
+    console.log('✅ Firebase Admin SDK enabled — FCM push notifications active');
+  } else {
+    console.log('ℹ️  Firebase Admin SDK not configured — set FIREBASE_SERVICE_ACCOUNT_JSON env var');
+  }
+} catch(e) {
+  console.warn('⚠️  firebase-admin package not found — run: npm install firebase-admin');
+}
+
+// Helper: send FCM push to a blood-type topic
+// Called when a new requirement is created.
+// Topic naming matches the Flutter app: A+ → blood_A_pos, O- → blood_O_neg
+async function sendFcmPushForRequirement(requirement) {
+  if (!firebaseAdmin) return;
+  try {
+    const { bloodType, patientName, hospital, urgency, unitsRequired } = requirement;
+
+    // Sanitise blood type for FCM topic (no +/- allowed)
+    const topic = 'blood_' + bloodType.replace('+', '_pos').replace('-', '_neg');
+
+    const urgencyLabel = urgency === 'Critical' ? '🚨 Critical'
+                       : urgency === 'High'     ? '⚠️ High Priority'
+                       : urgency === 'Medium'   ? '🟡 Medium'
+                       : '🟢 Low';
+
+    const title   = `${urgencyLabel} — ${bloodType} Blood Needed`;
+    const body    = `${unitsRequired} unit${unitsRequired !== 1 ? 's' : ''} needed for ${patientName} at ${hospital}`;
+
+    // Send to blood-type topic (matching donors)
+    await firebaseAdmin.messaging().send({
+      topic,
+      notification: { title, body },
+      android: {
+        priority: 'high',
+        notification: {
+          channelId:   'bloodconnect_alerts',
+          color:       '#C8102E',
+          sound:       'default',
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+        },
+      },
+      apns: {
+        payload: {
+          aps: { sound: 'default', badge: 1 },
+        },
+      },
+    });
+
+    // Also send to 'all' topic so every user gets it
+    await firebaseAdmin.messaging().send({
+      topic: 'all',
+      notification: { title, body },
+      android: {
+        priority: 'high',
+        notification: {
+          channelId:   'bloodconnect_alerts',
+          color:       '#C8102E',
+          sound:       'default',
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+        },
+      },
+      apns: {
+        payload: {
+          aps: { sound: 'default', badge: 1 },
+        },
+      },
+    });
+
+    console.log(`🔔 FCM push sent to topic "${topic}" and "all" for ${bloodType} requirement`);
+  } catch(err) {
+    console.error('FCM push error:', err.message);
+  }
+}
+
 // ── FRIENDLY ERROR HELPER ────────────────────────────────────────────────────
 // Converts raw database/system errors into readable messages for users.
 // Technical details are logged server-side only.
@@ -1232,6 +1335,10 @@ app.post('/api/requirements', authenticate, async (req, res) => {
     // Create in-app notifications — awaited so they are committed to DB before
     // the response is sent, ensuring the frontend sees them on the next fetch.
     await createInAppNotifications(req_).catch(err => console.error('In-app notification error:', err));
+
+    // Send FCM push notification to matching blood-type topic + 'all' topic
+    // Runs in background — does not block the response.
+    sendFcmPushForRequirement(req_).catch(err => console.error('FCM push error:', err));
 
     // Send SMS to matching available donors — runs in background, doesn't block response
     notifyMatchingDonors(req_).then(smsResult => {
