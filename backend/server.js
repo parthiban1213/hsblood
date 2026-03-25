@@ -71,7 +71,7 @@ async function sendFcmPushForRequirement(requirement) {
   try {
     const { bloodType, patientName, hospital, urgency, unitsRequired, _id } = requirement;
 
-    const topic = 'blood_' + bloodType.replace('+', '_pos').replace('-', '_neg');
+    const topic = 'blood_' + bloodType.replaceAll('+', '_pos').replaceAll('-', '_neg');
 
     const urgencyLabel = urgency === 'Critical' ? '🚨 Critical'
                        : urgency === 'High'     ? '⚠️ High Priority'
@@ -108,10 +108,7 @@ async function sendFcmPushForRequirement(requirement) {
     });
 
     await firebaseAdmin.messaging().send(buildMsg(topic));
-    console.log(`🔔 FCM → topic "${topic}"`);
-
-    await firebaseAdmin.messaging().send(buildMsg('all'));
-    console.log(`🔔 FCM → topic "all"`);
+    console.log(`🔔 FCM → topic "${topic}" for ${bloodType} requirement`);
 
   } catch(err) {
     // Common errors:
@@ -1337,7 +1334,7 @@ app.post('/api/requirements', authenticate, async (req, res) => {
     // the response is sent, ensuring the frontend sees them on the next fetch.
     await createInAppNotifications(req_).catch(err => console.error('In-app notification error:', err));
 
-    // Send FCM push notification to matching blood-type topic + 'all' topic
+    // Send FCM push notification to matching blood-type topic only
     // Runs in background — does not block the response.
     sendFcmPushForRequirement(req_).catch(err => console.error('FCM push error:', err));
 
