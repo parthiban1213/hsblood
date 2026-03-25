@@ -66,9 +66,9 @@ try {
 async function sendFcmPushForRequirement(requirement) {
   if (!firebaseAdmin) return;
   try {
-    const { bloodType, patientName, hospital, urgency, unitsRequired } = requirement;
+    const { bloodType, patientName, hospital, urgency, unitsRequired, _id } = requirement;
 
-    // Sanitise blood type for FCM topic (no +/- allowed)
+    // Sanitise blood type for FCM topic (no +/- allowed in topic names)
     const topic = 'blood_' + bloodType.replace('+', '_pos').replace('-', '_neg');
 
     const urgencyLabel = urgency === 'Critical' ? '🚨 Critical'
@@ -76,51 +76,51 @@ async function sendFcmPushForRequirement(requirement) {
                        : urgency === 'Medium'   ? '🟡 Medium'
                        : '🟢 Low';
 
-    const title   = `${urgencyLabel} — ${bloodType} Blood Needed`;
-    const body    = `${unitsRequired} unit${unitsRequired !== 1 ? 's' : ''} needed for ${patientName} at ${hospital}`;
+    const title = `${urgencyLabel} — ${bloodType} Blood Needed`;
+    const body  = `${unitsRequired} unit${unitsRequired !== 1 ? 's' : ''} needed for ${patientName} at ${hospital}`;
 
-    // Send to blood-type topic (matching donors)
-    await firebaseAdmin.messaging().send({
-      topic,
+    // Build the message object used for both topic sends.
+    // NOTE: clickAction is removed — it was deprecated in newer Firebase SDK
+    // and could silently prevent delivery on Android 13+.
+    // The data payload carries the requirementId so the Flutter app can
+    // navigate to the correct screen when the notification is tapped.
+    const buildMessage = (topicName) => ({
+      topic: topicName,
       notification: { title, body },
+      data: {
+        requirementId: _id ? _id.toString() : '',
+        bloodType,
+        type: 'requirement',
+      },
       android: {
         priority: 'high',
         notification: {
-          channelId:   'bloodconnect_alerts',
-          color:       '#C8102E',
-          sound:       'default',
-          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+          channelId:       'bloodconnect_alerts',
+          color:           '#C8102E',
+          sound:           'default',
+          notificationPriority: 'PRIORITY_HIGH',
+          visibility:      'PUBLIC',
         },
       },
       apns: {
+        headers: { 'apns-priority': '10' },
         payload: {
-          aps: { sound: 'default', badge: 1 },
+          aps: { sound: 'default', badge: 1, contentAvailable: true },
         },
       },
     });
 
-    // Also send to 'all' topic so every user gets it
-    await firebaseAdmin.messaging().send({
-      topic: 'all',
-      notification: { title, body },
-      android: {
-        priority: 'high',
-        notification: {
-          channelId:   'bloodconnect_alerts',
-          color:       '#C8102E',
-          sound:       'default',
-          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
-        },
-      },
-      apns: {
-        payload: {
-          aps: { sound: 'default', badge: 1 },
-        },
-      },
-    });
+    // Send to blood-type topic first (most targeted)
+    await firebaseAdmin.messaging().send(buildMessage(topic));
 
-    console.log(`🔔 FCM push sent to topic "${topic}" and "all" for ${bloodType} requirement`);
+    // Then broadcast to 'all' topic
+    await firebaseAdmin.messaging().send(buildMessage('all'));
+
+    console.log(`🔔 FCM push sent → topic "${topic}" + "all" for ${bloodType} requirement`);
   } catch(err) {
+    // Log the full error — common causes:
+    //   "Requested entity was not found" → no devices subscribed to topic yet
+    //   "SenderId mismatch"              → wrong google-services.json on device
     console.error('FCM push error:', err.message);
   }
 }
@@ -336,6 +336,7 @@ const userSchema = new mongoose.Schema({
   firstName:        { type: String, default: '', trim: true },
   lastName:         { type: String, default: '', trim: true },
   donorId:          { type: mongoose.Schema.Types.ObjectId, ref: 'Donor', default: null },
+  fcmToken:         { type: String, default: '' },  // Firebase Cloud Messaging device token
   createdAt:        { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', userSchema);
@@ -2020,6 +2021,21 @@ app.get('/api/export', authenticate, adminOnly, async (req, res) => {
     res.json({ success: true, data: result });
   } catch(err) {
     res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
+  }
+});
+
+// ─── FCM TOKEN ──────────────────────────────────────────────────
+// POST /api/auth/fcm-token — save FCM device token for targeted push notifications.
+// Called by the Flutter app after login whenever the FCM token is issued or rotated.
+app.post('/api/auth/fcm-token', authenticate, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ success: false, error: 'Token is required.' });
+    await User.findByIdAndUpdate(req.user.id, { fcmToken: token });
+    console.log(`📲 FCM token saved for user: ${req.user.username}`);
+    res.json({ success: true });
+  } catch(err) {
+    res.status(500).json({ success: false, error: friendlyError(err, 'FCMToken') });
   }
 });
 
