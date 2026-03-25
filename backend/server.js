@@ -1301,11 +1301,40 @@ app.post('/api/requirements/:id/donate', authenticate, async (req, res) => {
     if (req_.donations.some(d => d.donorUsername === req.user.username)) return res.status(400).json({ success: false, error: 'You have already responded to this requirement.' });
     const current = (req_.remainingUnits != null) ? req_.remainingUnits : req_.unitsRequired;
     if (current <= 0) return res.status(400).json({ success: false, error: 'This requirement has already been fully fulfilled.' });
-    req_.donations.push({ donorUsername: req.user.username, donorName: ((req.user.firstName || '') + ' ' + (req.user.lastName || '')).trim() || req.user.username, bloodType: userBT || req_.bloodType, donatedAt: new Date(), note: req.body.note || '' });
+    const donorName = ((req.user.firstName || '') + ' ' + (req.user.lastName || '')).trim() || req.user.username;
+    req_.donations.push({ donorUsername: req.user.username, donorName, bloodType: userBT || req_.bloodType, donatedAt: new Date(), note: req.body.note || '' });
     req_.remainingUnits = current - 1;
     if (req_.remainingUnits <= 0) { req_.remainingUnits = 0; req_.status = 'Fulfilled'; }
     req_.updatedAt = new Date();
     await req_.save();
+
+    // ── SMS to requirement creator (contactPhone) ─────────────
+    // Notify the person who created the requirement that a donor has stepped up.
+    // Runs in background — does not block the response.
+    if (twilioClient && req_.contactPhone) {
+      try {
+        let creatorPhone = req_.contactPhone.replace(/[\s\-()]/g, '');
+        if (!creatorPhone.startsWith('+')) creatorPhone = '+91' + creatorPhone;
+
+        const isFulfilled = req_.status === 'Fulfilled';
+        const smsBody = isFulfilled
+          ? `✅ HSBlood: Great news! ${donorName} has agreed to donate ${req_.bloodType} blood for ${req_.patientName} at ${req_.hospital}. Your requirement is now FULLY FULFILLED. Thank you!`
+          : `🩸 HSBlood: ${donorName} has agreed to donate ${req_.bloodType} blood for ${req_.patientName} at ${req_.hospital}. ${req_.remainingUnits} unit(s) still needed.`;
+
+        twilioClient.messages.create({
+          body: smsBody,
+          from: TWILIO_FROM,
+          to:   creatorPhone,
+        }).then(() => {
+          console.log(`📱 SMS sent to requirement creator (${creatorPhone}) for donation by ${req.user.username}`);
+        }).catch(err => {
+          console.error('Creator SMS error:', err.message);
+        });
+      } catch (smsErr) {
+        console.error('Creator SMS setup error:', smsErr.message);
+      }
+    }
+
     res.json({ success: true, message: req_.status === 'Fulfilled' ? 'This requirement is now fully fulfilled.' : 'Donation recorded! ' + req_.remainingUnits + ' unit(s) still needed.', data: { remainingUnits: req_.remainingUnits, status: req_.status } });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
