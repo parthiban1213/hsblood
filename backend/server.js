@@ -483,34 +483,17 @@ async function seedAccounts() {
 
 // ─── MIDDLEWARE ───────────────────────────────────────────────
 
-async function authenticate(req, res, next) {
+function authenticate(req, res, next) {
   const auth = req.headers.authorization;
-
   if (!auth || !auth.startsWith('Bearer ')) {
-    return res.status(401).json({
-      success: false,
-      error: 'Not authenticated. Please log in.'
-    });
+    return res.status(401).json({ success: false, error: 'Not authenticated. Please log in.' });
   }
-
   try {
     const decoded = jwt.verify(auth.split(' ')[1], JWT_SECRET);
-
-    const user = await User.findById(decoded.id).lean();
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: 'User not found. Please log in again.'
-      });
-    }
-
-    req.user = user;
+    req.user = decoded;
     next();
   } catch(e) {
-    return res.status(401).json({
-      success: false,
-      error: 'Session expired. Please log in again.'
-    });
+    return res.status(401).json({ success: false, error: 'Session expired. Please log in again.' });
   }
 }
 
@@ -1308,63 +1291,18 @@ app.get('/api/requirements', authenticate, async (req, res) => {
     if (req.query.bloodType) filter.bloodType = req.query.bloodType;
     if (req.query.status)    filter.status    = req.query.status;
     if (req.query.urgency)   filter.urgency   = req.query.urgency;
-
     const reqs = await BloodRequirement.find(filter).sort('-createdAt');
-
-    const enriched = reqs.map(r => {
-      const obj = r.toObject();
-
-      obj.remainingUnits = (obj.remainingUnits != null)
-        ? obj.remainingUnits
-        : obj.unitsRequired;
-
-      obj.isDonatedByMe = obj.donations?.some(
-        d => d.donorUsername === req.user.username
-      ) || false;
-
-      obj.isDeclinedByMe = obj.declines?.some(
-        d => d.donorUsername === req.user.username
-      ) || false;
-
-      return obj;
-    });
-
-    res.json({
-      success: true,
-      data: enriched,
-      count: enriched.length
-    });
-  } catch(err) {
-    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
-  }
+    res.json({ success: true, data: reqs, count: reqs.length });
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // Get single requirement — both roles
 app.get('/api/requirements/:id', authenticate, async (req, res) => {
   try {
     const req_ = await BloodRequirement.findById(req.params.id);
-    if (!req_) {
-      return res.status(404).json({ success: false, error: 'Requirement not found' });
-    }
-
-    const obj = req_.toObject();
-
-    obj.remainingUnits = (obj.remainingUnits != null)
-      ? obj.remainingUnits
-      : obj.unitsRequired;
-
-    obj.isDonatedByMe = obj.donations?.some(
-      d => d.donorUsername === req.user.username
-    ) || false;
-
-    obj.isDeclinedByMe = obj.declines?.some(
-      d => d.donorUsername === req.user.username
-    ) || false;
-
-    res.json({ success: true, data: obj });
-  } catch(err) {
-    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
-  }
+    if (!req_) return res.status(404).json({ success: false, error: 'Requirement not found' });
+    res.json({ success: true, data: req_ });
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // Create requirement — both roles can add
