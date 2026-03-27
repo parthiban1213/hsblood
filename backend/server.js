@@ -496,14 +496,7 @@ async function authenticate(req, res, next) {
   try {
     const decoded = jwt.verify(auth.split(' ')[1], JWT_SECRET);
 
-    // 🔥 Try primary lookup using ID
-    let user = await User.findById(decoded.id).lean();
-
-    // 🔥 Fallback for old tokens (VERY IMPORTANT)
-    if (!user && decoded.username) {
-      user = await User.findOne({ username: decoded.username }).lean();
-    }
-
+    const user = await User.findById(decoded.id).lean();
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -513,7 +506,7 @@ async function authenticate(req, res, next) {
 
     req.user = user;
     next();
-  } catch (e) {
+  } catch(e) {
     return res.status(401).json({
       success: false,
       error: 'Session expired. Please log in again.'
