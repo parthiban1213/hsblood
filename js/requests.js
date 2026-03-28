@@ -208,12 +208,7 @@ async function loadOpenRequirements() {
   }
 
   const userBT = currentUser?.bloodType || '';
-  let reqs = res.data;
-
-  // Filter to matching blood type if user has one set
-  if (userBT) {
-    reqs = reqs.filter(r => r.bloodType === userBT);
-  }
+  const reqs = res.data; // Show ALL open requirements, no blood type filter
 
   allOpenRequirements = reqs;
 
@@ -228,9 +223,8 @@ function renderOpenRequirements(data, userBT) {
   if (!data.length) {
     el.innerHTML = `<div class="empty-state">
       <div class="emoji">🩸</div>
-      <h4>No matching requests</h4>
-      <p>${userBT ? `No open requirements for blood type <strong>${userBT}</strong> right now.` : 'No open requirements at the moment.'}</p>
-      ${!userBT ? '<p style="font-size:0.8rem;color:var(--text3)">Set your blood type in Profile to see matching requests.</p>' : ''}
+      <h4>No open requests</h4>
+      <p>There are no open blood requirements at the moment.</p>
     </div>`;
     return;
   }
@@ -239,18 +233,37 @@ function renderOpenRequirements(data, userBT) {
 
   el.innerHTML = `
     ${isUnavailable ? `<div class="warn-banner">⚠️ You are currently marked as <strong>Unavailable</strong> to donate. <a href="#" onclick="showPage('profile',document.getElementById('nav-profile'))">Update in Profile →</a></div>` : ''}
+    ${userBT ? `<div style="font-size:0.8rem;color:var(--text2);margin-bottom:12px">Showing all requests — <strong>Donate</strong> and <strong>Decline</strong> buttons appear on requests matching your blood type (<span style="color:var(--red);font-weight:700">${userBT}</span>).</div>` : `<div style="font-size:0.8rem;color:var(--text3);margin-bottom:12px">Set your blood type in Profile to enable donating to matching requests.</div>`}
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">
       ${data.map(r => {
         const donated   = (r.donations || []).length;
         const total     = r.unitsRequired;
         const remaining = (r.remainingUnits != null) ? r.remainingUnits : total;
         const pct       = total > 0 ? Math.round((donated / total) * 100) : 0;
-        const alreadyDonated = (r.donations || []).some(d => d.donorUsername === currentUser?.username);
-        const alreadyDeclined = (r.declines || []).some(d => d.donorUsername === currentUser?.username);
+        const alreadyDonated  = (r.donations || []).some(d => d.donorUsername === currentUser?.username);
+        const alreadyDeclined = (r.declines  || []).some(d => d.donorUsername === currentUser?.username);
+        const isMatch = userBT && r.bloodType === userBT;
 
         const URGENCY_ICON = { Critical:'🔴', High:'🟠', Medium:'🟡', Low:'🟢' };
 
-        return `<div class="respond-card">
+        // Footer action area — only show donate/decline for matching blood type
+        let footerActions = '';
+        if (isMatch) {
+          if (alreadyDonated) {
+            footerActions = `<span class="respond-done-badge">✅ You responded</span>`;
+          } else if (alreadyDeclined) {
+            footerActions = `<span class="respond-declined-badge">❌ Declined</span>`;
+          } else if (isUnavailable) {
+            footerActions = `<span style="font-size:0.72rem;color:var(--text3)">Update availability to respond</span>`;
+          } else {
+            footerActions = `
+              <button class="btn btn-primary btn-sm" onclick="respondToDonate('${r._id}','${r.patientName}','${r.bloodType}')">🩸 Donate</button>
+              <button class="btn btn-outline btn-sm" onclick="respondToDecline('${r._id}')">Decline</button>`;
+          }
+        }
+        // Non-matching cards show no action buttons (just the view icon below)
+
+        return `<div class="respond-card${isMatch ? ' respond-card-match' : ''}">
           <div class="respond-card-top">
             <div>
               <div class="respond-card-patient">${r.patientName}</div>
@@ -260,6 +273,7 @@ function renderOpenRequirements(data, userBT) {
             <div style="text-align:right;flex-shrink:0">
               <div style="font-family:var(--font-display);font-size:1.8rem;font-weight:700;color:var(--red);line-height:1">${r.bloodType}</div>
               <span class="urgency-badge urgency-${r.urgency}" style="font-size:0.65rem;margin-top:4px;display:inline-block">${URGENCY_ICON[r.urgency] || ''} ${r.urgency}</span>
+              ${isMatch ? `<div style="font-size:0.65rem;font-weight:600;color:var(--red);margin-top:4px;background:var(--red-light);border-radius:6px;padding:2px 6px">Matches your type</div>` : ''}
             </div>
           </div>
           <div class="respond-card-prog">
@@ -271,15 +285,7 @@ function renderOpenRequirements(data, userBT) {
             </div>
           </div>
           <div class="respond-card-footer">
-            ${alreadyDonated
-              ? `<span class="respond-done-badge">✅ You responded</span>`
-              : alreadyDeclined
-                ? `<span class="respond-declined-badge">❌ Declined</span>`
-                : isUnavailable
-                  ? `<span style="font-size:0.72rem;color:var(--text3)">Update availability to respond</span>`
-                  : `<button class="btn btn-primary btn-sm" onclick="respondToDonate('${r._id}','${r.patientName}','${r.bloodType}')">🩸 Donate</button>
-                     <button class="btn btn-outline btn-sm" onclick="respondToDecline('${r._id}')">Decline</button>`
-            }
+            ${footerActions}
             <button class="btn btn-ghost btn-sm" onclick="viewRequirement('${r._id}')" style="margin-left:auto">👁</button>
           </div>
         </div>`;
