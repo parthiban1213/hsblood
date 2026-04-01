@@ -5,6 +5,31 @@ const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
 require('dotenv').config();
 
+// ── Nodemailer (support contact form) ────────────────────────
+// Uses Gmail + App Password. Set these env vars on Render:
+//   MAIL_USER  — the Gmail address that sends the email
+//   MAIL_PASS  — Gmail App Password (not your normal password)
+//               Generate at: https://myaccount.google.com/apppasswords
+//   MAIL_TO    — inbox that receives support messages (defaults to ADMIN_EMAIL)
+let mailTransporter = null;
+const MAIL_USER = process.env.MAIL_USER || '';
+const MAIL_PASS = process.env.MAIL_PASS || '';
+const MAIL_TO   = process.env.MAIL_TO   || process.env.ADMIN_EMAIL || '';
+if (MAIL_USER && MAIL_PASS) {
+  try {
+    const nodemailer = require('nodemailer');
+    mailTransporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: MAIL_USER, pass: MAIL_PASS },
+    });
+    console.log('✅ Nodemailer (Gmail) enabled — support emails active');
+  } catch(e) {
+    console.warn('⚠️  nodemailer package not found — run: npm install nodemailer');
+  }
+} else {
+  console.log('ℹ️  MAIL_USER / MAIL_PASS not set — support email disabled');
+}
+
 // Twilio SMS (optional — only active if TWILIO_* env vars are set)
 let twilioClient = null;
 const TWILIO_SID   = process.env.TWILIO_ACCOUNT_SID  || '';
@@ -2223,6 +2248,93 @@ app.delete('/api/notifications/:id', authenticate, async (req, res) => {
     res.json({ success: true });
   } catch(err) {
     res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
+  }
+});
+
+// ─── SUPPORT CONTACT FORM ────────────────────────────────────
+// POST /api/support/send
+// Public endpoint — no auth required (user may not be logged in).
+// Body: { fromName, fromEmail, subject, message, attachments? }
+app.post('/api/support/send', async (req, res) => {
+  try {
+    const { fromName, fromEmail, subject, message, attachments } = req.body;
+
+    // ── Validate ──────────────────────────────────────────
+    if (!fromName || !fromEmail || !subject || !message) {
+      return res.status(400).json({
+        success: false,
+        error: 'fromName, fromEmail, subject and message are required.',
+      });
+    }
+    const emailRegex = /^[\w.-]+@[\w.-]+\.\w{2,}$/;
+    if (!emailRegex.test(fromEmail)) {
+      return res.status(400).json({ success: false, error: 'Invalid email address.' });
+    }
+
+    // ── Check mail is configured ──────────────────────────
+    if (!mailTransporter) {
+      console.warn('Support email attempted but MAIL_USER/MAIL_PASS not configured.');
+      return res.status(503).json({
+        success: false,
+        error: 'Mail service is not configured on the server.',
+      });
+    }
+
+    const toAddress = MAIL_TO || MAIL_USER; // fallback: send to sender account
+    const attachmentNote = attachments && attachments.trim()
+      ? `\n\n📎 Attachments mentioned: ${attachments}\n(Files cannot be sent through the app — the user may follow up separately.)`
+      : '';
+
+    // ── Send ──────────────────────────────────────────────
+    await mailTransporter.sendMail({
+      from:    `"HSBlood Support" <${MAIL_USER}>`,
+      replyTo: `"${fromName}" <${fromEmail}>`,
+      to:      toAddress,
+      subject: `[HSBlood Support] ${subject}`,
+      text: [
+        `From: ${fromName} <${fromEmail}>`,
+        `Subject: ${subject}`,
+        '',
+        message,
+        attachmentNote,
+        '',
+        '---',
+        'Sent via HSBlood Mobile App',
+      ].join('\n'),
+      html: `
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
+          <div style="background:#DC2626;padding:20px 24px;border-radius:12px 12px 0 0;">
+            <h2 style="color:white;margin:0;font-size:18px;">🩸 HSBlood Support Request</h2>
+          </div>
+          <div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 12px 12px;">
+            <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+              <tr>
+                <td style="padding:6px 0;color:#6b7280;width:90px;vertical-align:top;"><strong>From</strong></td>
+                <td style="padding:6px 0;color:#111827;">${fromName} &lt;${fromEmail}&gt;</td>
+              </tr>
+              <tr>
+                <td style="padding:6px 0;color:#6b7280;vertical-align:top;"><strong>Subject</strong></td>
+                <td style="padding:6px 0;color:#111827;">${subject}</td>
+              </tr>
+            </table>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;">
+            <div style="color:#374151;line-height:1.6;white-space:pre-wrap;">${message}</div>
+            ${attachments ? `<div style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e;">📎 <strong>Attachments mentioned:</strong> ${attachments}</div>` : ''}
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
+            <p style="color:#9ca3af;font-size:12px;margin:0;">
+              Sent via HSBlood Mobile App · Reply to this email to respond to ${fromName}
+            </p>
+          </div>
+        </div>
+      `,
+    });
+
+    console.log(`📧 Support email sent — from: ${fromEmail}, subject: "${subject}"`);
+    res.json({ success: true });
+
+  } catch(err) {
+    console.error('Support email error:', err.message || err);
+    res.status(500).json({ success: false, error: friendlyError(err, 'SupportEmail') });
   }
 });
 
