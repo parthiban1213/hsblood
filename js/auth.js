@@ -444,13 +444,13 @@ function _showFpError(msg) {
 
 // ── CONTACT SUPPORT ──────────────────────────────────────────
 async function sendContactSupport() {
-  const name    = (document.getElementById('cs-name')?.value    || '').trim();
-  const email   = (document.getElementById('cs-email')?.value   || '').trim();
-  const subject = (document.getElementById('cs-subject')?.value || '').trim();
-  const message = (document.getElementById('cs-message')?.value || '').trim();
-  const file    =  document.getElementById('cs-attachment')?.files?.[0];
-  const errEl   =  document.getElementById('cs-error');
-  const btn     =  document.getElementById('cs-send-btn');
+  const name       = (document.getElementById('cs-name')?.value    || '').trim();
+  const email      = (document.getElementById('cs-email')?.value   || '').trim();
+  const subject    = (document.getElementById('cs-subject')?.value || '').trim();
+  const message    = (document.getElementById('cs-message')?.value || '').trim();
+  const file       =  document.getElementById('cs-attachment')?.files?.[0];
+  const errEl      =  document.getElementById('cs-error');
+  const btn        =  document.getElementById('cs-send-btn');
 
   if (errEl) { errEl.textContent=''; errEl.classList.remove('show'); errEl.style.display='none'; }
 
@@ -459,32 +459,78 @@ async function sendContactSupport() {
   if (!subject) { _showCsError('Subject is required.'); return; }
   if (!message) { _showCsError('Message is required.'); return; }
 
-  btn.disabled=true; btn.textContent='Opening mail…';
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
 
-  // Fetch admin contact email from server
-  let adminEmail = 'admin@hsblood.com';
   try {
-    const r = await fetch(API + '/config/admin-email');
-    const d = await r.json();
-    if (d.success && d.email) adminEmail = d.email;
-  } catch(e) { /* use default */ }
-
-  const attachNote = file
-    ? `\n\n[Attachment: "${file.name}" — please attach this file manually after your mail client opens]`
-    : '';
-  const body    = `From: ${name} <${email}>\n\n${message}${attachNote}\n\n---\nSent via HSBlood Contact Support`;
-  const mailto  = `mailto:${encodeURIComponent(adminEmail)}?subject=${encodeURIComponent('[HSBlood Support] '+subject)}&body=${encodeURIComponent(body)}`;
-  window.location.href = mailto;
-
-  setTimeout(() => {
-    btn.disabled=false; btn.textContent='📧 Send Message';
-    closeModal('contact-support-modal');
-    showToast('Mail client opened! Attach any files and send the email.','success');
-    ['cs-name','cs-email','cs-subject','cs-message'].forEach(id => {
-      const el=document.getElementById(id); if (el) el.value='';
+    // Send as JSON — server endpoint is /support/send (API already includes /api prefix)
+    const res = await fetch(API + '/support/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fromName:    name,
+        fromEmail:   email,
+        subject,
+        message,
+        attachments: file ? file.name : '',
+      }),
     });
-    const att=document.getElementById('cs-attachment'); if (att) att.value='';
-  }, 1500);
+
+    // Guard against non-JSON responses
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const text = await res.text();
+      console.error('Status:', res.status, 'Response:', text);
+      throw new Error('Server error. Please try again later.');
+    }
+
+    const data = await res.json();
+
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || data.message || 'Failed to send message.');
+    }
+
+    // ✅ Success — show popup, clear form, close modal
+    closeModal('contact-support-modal');
+    _showSuccessPopup();   // see helper below
+    ['cs-name','cs-email','cs-subject','cs-message'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    const att = document.getElementById('cs-attachment');
+    if (att) att.value = '';
+
+  } catch (err) {
+    _showCsError(err.message || 'Something went wrong. Please try again.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📧 Send Message';
+  }
+}
+
+// ✅ Success popup helper
+function _showSuccessPopup() {
+  // Use your existing showToast if available
+  if (typeof showToast === 'function') {
+    showToast('Your message has been sent successfully!', 'success');
+    return;
+  }
+  // Fallback: simple modal-style popup
+  const popup = document.createElement('div');
+  popup.style.cssText = `
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    background:#fff; border-radius:12px; padding:32px 40px; text-align:center;
+    box-shadow:0 8px 32px rgba(0,0,0,0.18); z-index:9999; min-width:280px;
+  `;
+  popup.innerHTML = `
+    <div style="font-size:48px;margin-bottom:12px;">✅</div>
+    <h3 style="margin:0 0 8px;font-size:20px;color:#1a1a1a;">Message Sent!</h3>
+    <p style="margin:0 0 20px;color:#555;">We'll get back to you at <strong>${document.getElementById('cs-email')?.value}</strong>.</p>
+    <button onclick="this.closest('div').remove()" style="
+      background:#e53935;color:#fff;border:none;border-radius:8px;
+      padding:10px 28px;font-size:15px;cursor:pointer;">OK</button>
+  `;
+  document.body.appendChild(popup);
+  setTimeout(() => popup?.remove(), 6000);
 }
 
 function _showCsError(msg) {
