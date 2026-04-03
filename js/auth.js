@@ -368,10 +368,6 @@ function launchApp(opts) {
   applyRoleUI();
   showPage('dashboard', document.querySelector('.nav-btn[onclick*="dashboard"]'));
   if (typeof initNotifications === 'function') initNotifications();
-  // Show availability popup only on fresh login (not on session restore)
-  if (opts && opts.freshLogin && currentUser && currentUser.role === 'user') {
-    setTimeout(() => openModal('availability-modal'), 600);
-  }
 }
 
 // ── FORGOT PASSWORD (username/password login flow) ────────────

@@ -266,6 +266,30 @@ async function viewRequirement(id){
       + (isAdmin() ? '<button class="btn btn-danger" onclick="closeModal(\'req-detail-modal\');deleteRequirement(\''+r._id+'\',\''+q(r.patientName)+'\')">🗑 Delete</button>' : '')
     : '<span class="lock-badge">🔒 View only</span>';
 
+  // 90-day eligibility for non-admin users
+  var userDonateBtn = '';
+  if (!isAdmin() && r.status === 'Open') {
+    const userBT = currentUser?.bloodType || '';
+    const isMatch = userBT && r.bloodType === userBT;
+    if (isMatch) {
+      const alreadyDonated  = (r.donations || []).some(function(d){ return d.donorUsername === currentUser?.username; });
+      const alreadyDeclined = (r.declines  || []).some(function(d){ return d.donorUsername === currentUser?.username; });
+      const _lastDon = currentUser?.lastDonationDate ? new Date(currentUser.lastDonationDate) : null;
+      const _daysSinceD = _lastDon ? Math.floor((Date.now() - _lastDon.getTime()) / 86400000) : 999;
+      const _notElig = _daysSinceD < 90;
+      const _nextEligD = _lastDon ? new Date(_lastDon.getTime() + 90 * 86400000) : null;
+      if (alreadyDonated) {
+        userDonateBtn = '<span class="respond-done-badge">✅ You responded</span>';
+      } else if (alreadyDeclined) {
+        userDonateBtn = '<span class="respond-declined-badge">❌ You declined</span>';
+      } else if (_notElig) {
+        userDonateBtn = '<button class="btn btn-sm" style="background:#F3F4F6;color:#9CA3AF;border:1.5px solid #E5E7EB;cursor:not-allowed;font-size:0.82rem;font-weight:600;padding:8px 18px;border-radius:8px;pointer-events:none" disabled>🚫 Not Eligible</button>';
+      } else {
+        userDonateBtn = '<button class="btn btn-primary" onclick="closeModal(\'req-detail-modal\');respondToDonate(\''+r._id+'\',\''+q(r.patientName)+'\',\''+r.bloodType+'\')">🩸 I\'ll Donate</button>';
+      }
+    }
+  }
+
   const locationLine  = r.location ? '<p style="color:var(--text2);font-size:0.82rem;margin-top:2px">📍 '+r.location+'</p>' : '';
   const locationField = r.location ? '<div class="detail-field"><div class="dk">Location</div><div class="dv">📍 '+r.location+'</div></div>' : '';
   const notesField    = r.notes    ? '<div class="detail-field" style="grid-column:1/-1"><div class="dk">Notes</div><div class="dv">'+r.notes+'</div></div>' : '';
@@ -310,7 +334,7 @@ async function viewRequirement(id){
       +notesField
     +'</div>'
     +donorListHtml
-    +'<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">'+editDeleteBtns+'</div>';
+    +'<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap">'+userDonateBtn+editDeleteBtns+'</div>';
 
   openModal('req-detail-modal');
 }

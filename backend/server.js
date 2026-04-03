@@ -1429,6 +1429,16 @@ app.post('/api/requirements/:id/donate', authenticate, async (req, res) => {
     if (userBT && req_.bloodType !== userBT) return res.status(400).json({ success: false, error: 'Blood type mismatch. Requirement needs ' + req_.bloodType + ', your type is ' + userBT + '.' });
     if (req.user.isAvailable === false) return res.status(400).json({ success: false, error: 'You are marked unavailable. Please update your profile.' });
     if (req_.donations.some(d => d.donorUsername === req.user.username)) return res.status(400).json({ success: false, error: 'You have already responded to this requirement.' });
+    // 90-day donation restriction
+    const fullUser = await User.findById(req.user._id || req.user.id);
+    if (fullUser && fullUser.lastDonationDate) {
+      const daysSince = Math.floor((Date.now() - new Date(fullUser.lastDonationDate).getTime()) / (1000 * 60 * 60 * 24));
+      if (daysSince < 90) {
+        const nextEligible = new Date(fullUser.lastDonationDate);
+        nextEligible.setDate(nextEligible.getDate() + 90);
+        return res.status(400).json({ success: false, error: `You are not eligible to donate yet. You can donate again after ${nextEligible.toDateString()} (${90 - daysSince} days remaining).` });
+      }
+    }
     const current = (req_.remainingUnits != null) ? req_.remainingUnits : req_.unitsRequired;
     if (current <= 0) return res.status(400).json({ success: false, error: 'This requirement has already been fully fulfilled.' });
     const donorName = ((req.user.firstName || '') + ' ' + (req.user.lastName || '')).trim() || req.user.username;
@@ -1437,6 +1447,16 @@ app.post('/api/requirements/:id/donate', authenticate, async (req, res) => {
     if (req_.remainingUnits <= 0) { req_.remainingUnits = 0; req_.status = 'Fulfilled'; }
     req_.updatedAt = new Date();
     await req_.save();
+
+    // Record donation date on user (for 90-day eligibility restriction)
+    try {
+      const donationDate = new Date();
+      await User.findByIdAndUpdate(req.user._id || req.user.id, { lastDonationDate: donationDate });
+      // Also update linked donor record if exists
+      if (fullUser && fullUser.donorId) {
+        await mongoose.model('Donor').findByIdAndUpdate(fullUser.donorId, { lastDonationDate: donationDate }).catch(() => {});
+      }
+    } catch (updateErr) { console.error('Could not update lastDonationDate:', updateErr.message); }
 
     // ── SMS to requirement creator (contactPhone) ─────────────
     // Notify the person who created the requirement that a donor has stepped up.

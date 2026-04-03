@@ -58,6 +58,31 @@ function renderProfile(user) {
   _setVal('profile-address',   user.address   || '');
   _setVal('profile-lastDonation', user.lastDonationDate ? user.lastDonationDate.split('T')[0] : '');
 
+  // Compute and display eligibility info
+  const eligEl = document.getElementById('profile-eligibility-info');
+  if (eligEl) {
+    const lastDon = user.lastDonationDate ? new Date(user.lastDonationDate) : null;
+    if (lastDon && !isNaN(lastDon.getTime())) {
+      const nextElig = new Date(lastDon.getTime() + 90 * 86400000);
+      const daysLeft = Math.ceil((nextElig.getTime() - Date.now()) / 86400000);
+      const isElig   = daysLeft <= 0;
+      eligEl.innerHTML = `
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+          <div style="flex:1;min-width:180px;background:${isElig ? '#F0FDF4' : '#FEF3C7'};border:1.5px solid ${isElig ? '#BBF7D0' : '#FCD34D'};border-radius:10px;padding:12px 14px">
+            <div style="font-size:0.7rem;font-weight:700;color:${isElig ? '#15803D' : '#92400E'};text-transform:uppercase;letter-spacing:0.06em;font-family:var(--font-ui);margin-bottom:4px">📅 Next Eligible Date</div>
+            <div style="font-size:0.95rem;font-weight:700;color:var(--text);font-family:var(--font-ui)">${nextElig.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</div>
+          </div>
+          <div style="flex:1;min-width:180px;background:${isElig ? '#F0FDF4' : '#FEF3C7'};border:1.5px solid ${isElig ? '#BBF7D0' : '#FCD34D'};border-radius:10px;padding:12px 14px">
+            <div style="font-size:0.7rem;font-weight:700;color:${isElig ? '#15803D' : '#92400E'};text-transform:uppercase;letter-spacing:0.06em;font-family:var(--font-ui);margin-bottom:4px">⏳ Days Until Next Donation</div>
+            <div style="font-size:0.95rem;font-weight:700;color:var(--text);font-family:var(--font-ui)">${isElig ? '✅ Eligible Now' : daysLeft + ' day' + (daysLeft !== 1 ? 's' : '') + ' remaining'}</div>
+          </div>
+        </div>`;
+      eligEl.style.display = '';
+    } else {
+      eligEl.style.display = 'none';
+    }
+  }
+
   // Close mobile OTP panel if open
   closeMobileUpdatePanel();
 }

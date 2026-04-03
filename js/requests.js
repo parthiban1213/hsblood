@@ -231,9 +231,17 @@ function renderOpenRequirements(data, userBT) {
 
   const isUnavailable = currentUser?.isAvailable === false;
 
+  // 90-day eligibility check
+  const _lastDonation = currentUser?.lastDonationDate ? new Date(currentUser.lastDonationDate) : null;
+  const _daysSince = _lastDonation ? Math.floor((Date.now() - _lastDonation.getTime()) / 86400000) : 999;
+  const isNotEligible = _daysSince < 90;
+  const _nextEligible = _lastDonation ? new Date(_lastDonation.getTime() + 90 * 86400000) : null;
+  const _daysLeft = isNotEligible ? (90 - _daysSince) : 0;
+
   el.innerHTML = `
     ${isUnavailable ? `<div class="warn-banner">⚠️ You are currently marked as <strong>Unavailable</strong> to donate. <a href="#" onclick="showPage('profile',document.getElementById('nav-profile'))">Update in Profile →</a></div>` : ''}
-    ${userBT ? `<div style="font-size:0.8rem;color:var(--text2);margin-bottom:12px">Showing all requests — <strong>Donate</strong> and <strong>Decline</strong> buttons appear on requests matching your blood type (<span style="color:var(--red);font-weight:700">${userBT}</span>).</div>` : `<div style="font-size:0.8rem;color:var(--text3);margin-bottom:12px">Set your blood type in Profile to enable donating to matching requests.</div>`}
+    ${isNotEligible ? `<div class="warn-banner" style="background:#FEF3C7;border:1.5px solid #FCD34D;color:#92400E;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:0.82rem;font-family:var(--font-ui)">⏳ You are not eligible to donate yet. Next eligible date: <strong>${_nextEligible.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</strong> — ${_daysLeft} day${_daysLeft !== 1 ? 's' : ''} remaining.</div>` : ''}
+    ${userBT ? `<div style="font-size:0.8rem;color:var(--text2);margin-bottom:12px">Showing all requests — <strong>I'll Donate</strong> and <strong>Decline</strong> buttons appear on requests matching your blood type (<span style="color:var(--red);font-weight:700">${userBT}</span>).</div>` : `<div style="font-size:0.8rem;color:var(--text3);margin-bottom:12px">Set your blood type in Profile to enable donating to matching requests.</div>`}
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">
       ${data.map(r => {
         const donated   = (r.donations || []).length;
@@ -253,11 +261,13 @@ function renderOpenRequirements(data, userBT) {
             footerActions = `<span class="respond-done-badge">✅ You responded</span>`;
           } else if (alreadyDeclined) {
             footerActions = `<span class="respond-declined-badge">❌ Declined</span>`;
+          } else if (isNotEligible) {
+            footerActions = `<button class="btn btn-sm" style="background:#F3F4F6;color:#9CA3AF;border:1.5px solid #E5E7EB;cursor:not-allowed;font-family:var(--font-ui);font-size:0.78rem;font-weight:600;padding:6px 14px;border-radius:8px;pointer-events:none" disabled title="Not eligible until ${_nextEligible?.toLocaleDateString('en-IN')}">🚫 Not Eligible</button>`;
           } else if (isUnavailable) {
             footerActions = `<span style="font-size:0.72rem;color:var(--text3)">Update availability to respond</span>`;
           } else {
             footerActions = `
-              <button class="btn btn-primary btn-sm" onclick="respondToDonate('${r._id}','${r.patientName}','${r.bloodType}')">🩸 Donate</button>
+              <button class="btn btn-primary btn-sm" onclick="respondToDonate('${r._id}','${r.patientName}','${r.bloodType}')">🩸 I'll Donate</button>
               <button class="btn btn-outline btn-sm" onclick="respondToDecline('${r._id}')">Decline</button>`;
           }
         }
@@ -300,6 +310,14 @@ async function respondToDonate(id, patientName, bloodType) {
   const res = await apiFetch('/requirements/' + id + '/donate', { method: 'POST', body: JSON.stringify({}) });
   if (res.success) {
     showToast(res.message || 'Donation recorded!', 'success');
+    // Refresh currentUser so 90-day restriction takes effect immediately
+    try {
+      const profileRes = await apiFetch('/auth/profile');
+      if (profileRes.success) {
+        currentUser = { ...currentUser, ...profileRes.user };
+        localStorage.setItem('bl_user', JSON.stringify(currentUser));
+      }
+    } catch(e) { /* use cached */ }
     loadOpenRequirements(); // also calls updateRespondBadge internally
     loadMyDonationHistory();
   } else {
