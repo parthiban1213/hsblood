@@ -547,14 +547,25 @@ app.post('/api/auth/otp/send', async (req, res) => {
     const mob     = mobile.trim();
     const purpose = (req.body.purpose || 'login').trim();
 
-    // Check if mobile is registered — block login attempts for unregistered numbers
+    // Check if mobile is registered
     const existingUser  = await User.findOne({ mobile: mob }).lean();
     const existingDonor = await Donor.findOne({ phone: mob }).lean();
 
+    // Block login attempts for unregistered numbers
     if (purpose !== 'register' && !existingUser && !existingDonor) {
       return res.status(404).json({
         success: false,
         error: 'No account found for this mobile number. Please register first.',
+      });
+    }
+
+    // Block register attempts for already-registered numbers — do NOT send OTP
+    if (purpose === 'register' && (existingUser || existingDonor)) {
+      return res.status(409).json({
+        success: false,
+        error: 'This mobile number is already registered. Please login instead.',
+        isExistingUser:  !!existingUser,
+        isExistingDonor: !!existingDonor && !existingUser,
       });
     }
 
