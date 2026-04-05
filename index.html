@@ -1117,15 +1117,32 @@
 
 <!-- ═══ DONATE CONFIRM MODAL ═══ -->
 <div class="modal-overlay" id="donate-confirm-modal">
-  <div class="modal" style="max-width:380px">
+  <div class="modal" style="max-width:440px">
     <div class="modal-header">
-      <h3>🩸 Confirm Donation</h3>
+      <h3>🩸 Schedule Your Donation</h3>
       <button class="modal-close" onclick="closeModal('donate-confirm-modal')">✕</button>
     </div>
     <div style="padding:20px" id="donate-confirm-body"></div>
+    <div style="padding:0 20px 20px">
+      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:14px">
+        <div style="font-size:0.78rem;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em">📅 Pick a Date &amp; Time</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <label style="display:block;font-size:0.75rem;font-weight:600;color:var(--text2);margin-bottom:5px">Donation Date</label>
+            <input type="date" id="donate-schedule-date" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:0.85rem;background:var(--bg);color:var(--text);font-family:var(--font-ui);box-sizing:border-box" />
+          </div>
+          <div>
+            <label style="display:block;font-size:0.75rem;font-weight:600;color:var(--text2);margin-bottom:5px">Preferred Time</label>
+            <input type="time" id="donate-schedule-time" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:0.85rem;background:var(--bg);color:var(--text);font-family:var(--font-ui);box-sizing:border-box" />
+          </div>
+        </div>
+        <div id="donate-schedule-err" style="display:none;font-size:0.75rem;color:#DC2626;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:7px;padding:7px 10px"></div>
+        <p style="font-size:0.72rem;color:var(--text3);margin:0">The requester will be notified of your scheduled date and time. Your donation will appear as <strong>Pending</strong> until marked completed.</p>
+      </div>
+    </div>
     <div class="modal-footer" style="padding:12px 20px;display:flex;gap:10px;justify-content:flex-end">
       <button class="btn btn-outline" id="donate-confirm-no">Cancel</button>
-      <button class="btn btn-primary" id="donate-confirm-yes">✅ Yes, I'll Donate</button>
+      <button class="btn btn-primary" id="donate-confirm-yes">🩸 Confirm &amp; Schedule</button>
     </div>
   </div>
 </div>
@@ -1172,7 +1189,7 @@
           </select>
         </div>
         <div class="form-group"><label>Required By Date</label><input type="date" id="req-requiredBy"/></div>
-        <div class="form-group">
+        <div class="form-group" id="req-status-group">
           <label>Status</label>
           <select id="req-status">
             <option value="Open">Open</option>

@@ -73,15 +73,24 @@ function renderDonationHistory(data) {
             <th>Hospital / Location</th>
             <th>Blood Type</th>
             <th>Urgency</th>
-            <th>Donated On</th>
-            <th>Requirement Status</th>
+            <th>Scheduled Date</th>
+            <th>Donation Status</th>
+            <th>Request Status</th>
           </tr>
         </thead>
         <tbody>
           ${data.map(d => {
-            const statusCls = d.status === 'Fulfilled' ? 'req-status-Fulfilled'
+            const reqStatusCls = d.status === 'Fulfilled' ? 'req-status-Fulfilled'
               : d.status === 'Cancelled' ? 'req-status-Cancelled'
               : 'req-status-Open';
+            const donStatus = d.donationStatus || 'Pending';
+            const isPending = donStatus === 'Pending';
+            const donBadge = isPending
+              ? `<span style="display:inline-block;font-size:0.72rem;font-weight:700;padding:3px 10px;border-radius:99px;background:#FEF3C7;color:#92400E;border:1px solid #FCD34D">⏳ Pending</span>`
+              : `<span style="display:inline-block;font-size:0.72rem;font-weight:700;padding:3px 10px;border-radius:99px;background:#DCFCE7;color:#15803D;border:1px solid #86EFAC">✅ Completed</span>`;
+            const schedCell = d.scheduledDate
+              ? `<div style="font-size:0.82rem;font-weight:500">${formatDate(d.scheduledDate)}</div>${d.scheduledTime ? `<div style="font-size:0.72rem;color:var(--text3)">🕐 ${d.scheduledTime}</div>` : ''}`
+              : `<span style="color:var(--text3);font-size:0.78rem">—</span>`;
             return `<tr>
               <td class="bold">${d.patientName}</td>
               <td>
@@ -90,9 +99,10 @@ function renderDonationHistory(data) {
               </td>
               <td><span class="blood-badge">${d.bloodType}</span></td>
               <td><span class="urgency-badge urgency-${d.urgency}">${URGENCY_ICON[d.urgency] || ''} ${d.urgency}</span></td>
-              <td style="font-size:0.82rem">${formatDate(d.donatedAt)}</td>
+              <td>${schedCell}</td>
+              <td>${donBadge}</td>
               <td>
-                <span class="req-status-badge ${statusCls}">${d.status}</span>
+                <span class="req-status-badge ${reqStatusCls}">${d.status}</span>
                 ${d.status === 'Fulfilled' ? ' <span style="font-size:0.75rem">🎉</span>' : ''}
               </td>
             </tr>`;

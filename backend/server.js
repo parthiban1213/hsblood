@@ -446,11 +446,14 @@ const bloodRequirementSchema = new mongoose.Schema({
   status:         { type: String, enum: ['Open','Fulfilled','Cancelled'], default: 'Open' },
   createdBy:      { type: String, default: '' },
   donations: [{
-    donorUsername: { type: String, required: true },
-    donorName:     { type: String, default: '' },
-    bloodType:     { type: String, default: '' },
-    donatedAt:     { type: Date, default: Date.now },
-    note:          { type: String, default: '' }
+    donorUsername:  { type: String, required: true },
+    donorName:      { type: String, default: '' },
+    bloodType:      { type: String, default: '' },
+    donatedAt:      { type: Date, default: Date.now },
+    note:           { type: String, default: '' },
+    scheduledDate:  { type: String, default: '' },
+    scheduledTime:  { type: String, default: '' },
+    donationStatus: { type: String, enum: ['Pending', 'Completed'], default: 'Pending' }
   }],
   declines: [{
     donorUsername: { type: String },
@@ -1423,7 +1426,8 @@ app.get('/api/my-requirements', authenticate, async (req, res) => {
     const enriched = reqs.map(r => {
       const obj = r.toObject();
       obj.remainingUnits = (obj.remainingUnits != null) ? obj.remainingUnits : obj.unitsRequired;
-      obj.donationsCount = (obj.donations || []).length;
+      obj.donationsCount = (obj.donations || []).filter(d => d.donationStatus === 'Completed').length;
+      obj.pendingCount   = (obj.donations || []).filter(d => (d.donationStatus || 'Pending') === 'Pending').length;
       return obj;
     });
     res.json({ success: true, data: enriched, count: enriched.length });
@@ -1440,34 +1444,17 @@ app.post('/api/requirements/:id/donate', authenticate, async (req, res) => {
     if (userBT && req_.bloodType !== userBT) return res.status(400).json({ success: false, error: 'Blood type mismatch. Requirement needs ' + req_.bloodType + ', your type is ' + userBT + '.' });
     if (req.user.isAvailable === false) return res.status(400).json({ success: false, error: 'You are marked unavailable. Please update your profile.' });
     if (req_.donations.some(d => d.donorUsername === req.user.username)) return res.status(400).json({ success: false, error: 'You have already responded to this requirement.' });
-    // 90-day donation restriction
-    const fullUser = await User.findById(req.user._id || req.user.id);
-    if (fullUser && fullUser.lastDonationDate) {
-      const daysSince = Math.floor((Date.now() - new Date(fullUser.lastDonationDate).getTime()) / (1000 * 60 * 60 * 24));
-      if (daysSince < 90) {
-        const nextEligible = new Date(fullUser.lastDonationDate);
-        nextEligible.setDate(nextEligible.getDate() + 90);
-        return res.status(400).json({ success: false, error: `You are not eligible to donate yet. You can donate again after ${nextEligible.toDateString()} (${90 - daysSince} days remaining).` });
-      }
-    }
-    const current = (req_.remainingUnits != null) ? req_.remainingUnits : req_.unitsRequired;
-    if (current <= 0) return res.status(400).json({ success: false, error: 'This requirement has already been fully fulfilled.' });
+    // NOTE: No 90-day restriction on pledging — the restriction is enforced on the frontend
+    // based on lastDonationDate, which is only updated when a donation is marked Completed.
     const donorName = ((req.user.firstName || '') + ' ' + (req.user.lastName || '')).trim() || req.user.username;
-    req_.donations.push({ donorUsername: req.user.username, donorName, bloodType: userBT || req_.bloodType, donatedAt: new Date(), note: req.body.note || '' });
-    req_.remainingUnits = current - 1;
-    if (req_.remainingUnits <= 0) { req_.remainingUnits = 0; req_.status = 'Fulfilled'; }
+    req_.donations.push({ donorUsername: req.user.username, donorName, bloodType: userBT || req_.bloodType, donatedAt: new Date(), note: req.body.note || '', scheduledDate: req.body.scheduledDate || '', scheduledTime: req.body.scheduledTime || '', donationStatus: 'Pending' });
+    // NOTE: remainingUnits and status are NOT changed here.
+    // They are updated only when the requester marks the donation as Completed.
     req_.updatedAt = new Date();
     await req_.save();
 
-    // Record donation date on user (for 90-day eligibility restriction)
-    try {
-      const donationDate = new Date();
-      await User.findByIdAndUpdate(req.user._id || req.user.id, { lastDonationDate: donationDate });
-      // Also update linked donor record if exists
-      if (fullUser && fullUser.donorId) {
-        await mongoose.model('Donor').findByIdAndUpdate(fullUser.donorId, { lastDonationDate: donationDate }).catch(() => {});
-      }
-    } catch (updateErr) { console.error('Could not update lastDonationDate:', updateErr.message); }
+    // NOTE: lastDonationDate is NOT updated here.
+    // It is updated only when the requester marks the donation as Completed.
 
     // ── SMS to requirement creator (contactPhone) ─────────────
     // Notify the person who created the requirement that a donor has stepped up.
@@ -1521,17 +1508,21 @@ app.get('/api/my-donations', authenticate, async (req, res) => {
     const reqs = await BloodRequirement.find({ 'donations.donorUsername': req.user.username }).sort('-updatedAt');
     const history = reqs.map(r => {
       const d = r.donations.find(d => d.donorUsername === req.user.username);
-      return { requirementId: r._id, patientName: r.patientName, hospital: r.hospital, location: r.location, bloodType: r.bloodType, unitsRequired: r.unitsRequired, remainingUnits: (r.remainingUnits != null) ? r.remainingUnits : r.unitsRequired, status: r.status, urgency: r.urgency, donatedAt: d ? d.donatedAt : null, note: d ? d.note : '' };
+      return { requirementId: r._id, patientName: r.patientName, hospital: r.hospital, location: r.location, bloodType: r.bloodType, unitsRequired: r.unitsRequired, remainingUnits: (r.remainingUnits != null) ? r.remainingUnits : r.unitsRequired, status: r.status, urgency: r.urgency, donatedAt: d ? d.donatedAt : null, note: d ? d.note : '', scheduledDate: d ? (d.scheduledDate || '') : '', scheduledTime: d ? (d.scheduledTime || '') : '', donationStatus: d ? (d.donationStatus || 'Pending') : 'Pending', donorUsername: d ? d.donorUsername : '' };
     });
     res.json({ success: true, data: history, count: history.length });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
-// ── REQUIREMENT DONORS (admin) ────────────────────────────────
-app.get('/api/requirements/:id/donors', authenticate, adminOnly, async (req, res) => {
+// ── REQUIREMENT DONORS (admin or requester) ──────────────────────────────────
+app.get('/api/requirements/:id/donors', authenticate, async (req, res) => {
   try {
     const req_ = await BloodRequirement.findById(req.params.id);
     if (!req_) return res.status(404).json({ success: false, error: 'Requirement not found.' });
+    const isAdmin_    = req.user.role === 'admin';
+    const isRequester = req_.createdBy === req.user.username;
+    if (!isAdmin_ && !isRequester)
+      return res.status(403).json({ success: false, error: 'Only the requester or admin can view this.' });
     res.json({ success: true, data: req_.donations || [], count: (req_.donations || []).length });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
@@ -2367,6 +2358,106 @@ app.post('/api/support/send', async (req, res) => {
     console.error('Support email error:', err.message || err);
     res.status(500).json({ success: false, error: friendlyError(err, 'SupportEmail') });
   }
+});
+
+// ── UPDATE DONATION STATUS (requester or admin) ──────────────
+// When marked Completed:
+//   1. Update lastDonationDate on User + Donor
+//   2. Decrement remainingUnits on THIS requirement; mark Fulfilled if done
+//   3. Remove all other Pending pledges by this donor from other requirements
+//      and restore those requirements' remainingUnits
+app.post('/api/requirements/:id/donations/:donorUsername/status', authenticate, async (req, res) => {
+  try {
+    const { donationStatus } = req.body;
+    if (!['Pending', 'Completed'].includes(donationStatus))
+      return res.status(400).json({ success: false, error: 'Status must be Pending or Completed.' });
+
+    const req_ = await BloodRequirement.findById(req.params.id);
+    if (!req_) return res.status(404).json({ success: false, error: 'Requirement not found.' });
+
+    const isAdmin_    = req.user.role === 'admin';
+    const isRequester = req_.createdBy === req.user.username;
+    if (!isAdmin_ && !isRequester)
+      return res.status(403).json({ success: false, error: 'Only the requester or admin can update donation status.' });
+
+    const donorUsername = req.params.donorUsername;
+    const donation = req_.donations.find(d => d.donorUsername === donorUsername);
+    if (!donation)
+      return res.status(404).json({ success: false, error: 'Donation record not found.' });
+
+    // Already completed — nothing to do
+    if (donation.donationStatus === 'Completed' && donationStatus === 'Completed')
+      return res.json({ success: true, message: 'Already marked as Completed.', donationStatus });
+
+    donation.donationStatus = donationStatus;
+    req_.updatedAt = new Date();
+
+    if (donationStatus === 'Completed') {
+      // 1. Count only COMPLETED donations (not pending pledges) to determine remaining units
+      //    We do this before marking the current one completed so we don't double-count.
+      const completedBefore = req_.donations.filter(
+        d => d.donorUsername !== donorUsername && d.donationStatus === 'Completed'
+      ).length;
+      // After this completion, total completed = completedBefore + 1
+      const totalCompleted = completedBefore + 1;
+      req_.remainingUnits = Math.max(0, req_.unitsRequired - totalCompleted);
+      if (req_.remainingUnits <= 0) { req_.remainingUnits = 0; req_.status = 'Fulfilled'; }
+
+      // If this requirement is now Fulfilled, remove ALL other Pending pledges on it
+      // (no more donors needed — clear their obligations)
+      if (req_.status === 'Fulfilled') {
+        req_.donations = req_.donations.filter(
+          d => d.donorUsername === donorUsername || d.donationStatus === 'Completed'
+        );
+        console.log(`✅ Req ${req_._id} Fulfilled — cleared remaining pending pledges`);
+      }
+
+      await req_.save();
+
+      // 2. Update lastDonationDate on User + linked Donor
+      const completionDate = new Date();
+      const donorUser = await User.findOne({ username: donorUsername });
+      if (donorUser) {
+        await User.findByIdAndUpdate(donorUser._id, { lastDonationDate: completionDate });
+        if (donorUser.donorId) {
+          await Donor.findByIdAndUpdate(donorUser.donorId, { lastDonationDate: completionDate, updatedAt: completionDate }).catch(() => {});
+        }
+        console.log(`✅ lastDonationDate updated for ${donorUsername} on completion`);
+      }
+
+      // 3. Remove all OTHER Pending pledges by this donor from other requirements.
+      //    Since pledging never decremented remainingUnits, we do NOT restore them here.
+      const otherReqs = await BloodRequirement.find({
+        _id: { $ne: req_._id },
+        donations: { $elemMatch: { donorUsername: donorUsername, donationStatus: 'Pending' } },
+      });
+
+      for (const other of otherReqs) {
+        const idx = other.donations.findIndex(
+          d => d.donorUsername === donorUsername && d.donationStatus === 'Pending'
+        );
+        if (idx !== -1) {
+          other.donations.splice(idx, 1);
+          // remainingUnits is NOT restored — pledging never changed it, so nothing to undo.
+          other.updatedAt = new Date();
+          await other.save();
+          console.log(`🗑 Removed pending pledge by ${donorUsername} from req ${other._id}`);
+        }
+      }
+
+      res.json({
+        success: true,
+        message: 'Donation marked as Completed. Last donation date updated and other pending pledges cleared.',
+        donationStatus,
+        remainingUnits: req_.remainingUnits,
+        requirementStatus: req_.status,
+      });
+    } else {
+      // Reverting to Pending — just save
+      await req_.save();
+      res.json({ success: true, message: 'Donation set back to Pending.', donationStatus });
+    }
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
 // ─── GLOBAL ERROR HANDLER ────────────────────────────────────

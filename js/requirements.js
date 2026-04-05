@@ -123,6 +123,7 @@ function openReqModal(){
   document.getElementById('req-form').reset();
   document.getElementById('req-urgency').value='Medium';
   document.getElementById('req-status').value='Open';
+  document.getElementById('req-status-group').style.display='none'; // hidden on new — always Open
   document.getElementById('req-dup-warn').style.display='none';
   // Wire duplicate checks on blur
   document.getElementById('req-patientName').onblur = checkReqDuplicate;
@@ -149,6 +150,7 @@ async function editRequirement(id){
   document.getElementById('req-urgency').value=r.urgency||'Medium';
   document.getElementById('req-requiredBy').value=r.requiredBy?r.requiredBy.split('T')[0]:'';
   document.getElementById('req-status').value=r.status||'Open';
+  document.getElementById('req-status-group').style.display=''; // visible when editing
   document.getElementById('req-notes').value=r.notes||'';
   openModal('req-modal');
 }
@@ -208,10 +210,10 @@ async function viewRequirement(id){
   const res = await apiFetch('/requirements/'+id);
   if(!res.success){ showToast(res.error||'Operation failed.','error'); return; }
   const r = res.data;
-  const donated   = (r.donations||[]).length;
+  const completed = (r.donations||[]).filter(function(d){ return d.donationStatus === 'Completed'; }).length;
   const total     = r.unitsRequired;
   const remaining = (r.remainingUnits!=null) ? r.remainingUnits : total;
-  const pct       = total>0 ? Math.round((donated/total)*100) : 0;
+  const pct       = total>0 ? Math.round((completed/total)*100) : 0;
   const barColor  = pct===100 ? '#15803D' : 'var(--red)';
   const q = function(s){ return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); };
 
@@ -272,14 +274,18 @@ async function viewRequirement(id){
     const userBT = currentUser?.bloodType || '';
     const isMatch = userBT && r.bloodType === userBT;
     if (isMatch) {
-      const alreadyDonated  = (r.donations || []).some(function(d){ return d.donorUsername === currentUser?.username; });
+      const myDonation      = (r.donations || []).find(function(d){ return d.donorUsername === currentUser?.username; });
+      const alreadyDonated  = !!myDonation;
       const alreadyDeclined = (r.declines  || []).some(function(d){ return d.donorUsername === currentUser?.username; });
       const _lastDon = currentUser?.lastDonationDate ? new Date(currentUser.lastDonationDate) : null;
       const _daysSinceD = _lastDon ? Math.floor((Date.now() - _lastDon.getTime()) / 86400000) : 999;
       const _notElig = _daysSinceD < 90;
       const _nextEligD = _lastDon ? new Date(_lastDon.getTime() + 90 * 86400000) : null;
       if (alreadyDonated) {
-        userDonateBtn = '<span class="respond-done-badge">✅ You responded</span>';
+        const doneDone = myDonation.donationStatus === 'Completed';
+        userDonateBtn = doneDone
+          ? '<span class="respond-done-badge" style="background:#DCFCE7;color:#15803D;border:1.5px solid #86EFAC">✅ You donated</span>'
+          : '<span class="respond-done-badge">⏳ Scheduled</span>';
       } else if (alreadyDeclined) {
         userDonateBtn = '<span class="respond-declined-badge">❌ You declined</span>';
       } else if (_notElig) {
@@ -312,7 +318,7 @@ async function viewRequirement(id){
     +'</div>'
     +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">'
       +'<div class="status-stat-card"><div class="status-stat-val" style="color:var(--red)">'+total+'</div><div class="status-stat-label">Required</div></div>'
-      +'<div class="status-stat-card"><div class="status-stat-val" style="color:#15803D">'+donated+'</div><div class="status-stat-label">Donated</div></div>'
+      +'<div class="status-stat-card"><div class="status-stat-val" style="color:#15803D">'+completed+'</div><div class="status-stat-label">Donated</div></div>'
       +'<div class="status-stat-card"><div class="status-stat-val" style="color:#D97706">'+remaining+'</div><div class="status-stat-label">Remaining</div></div>'
     +'</div>'
     +'<div style="margin-bottom:14px">'

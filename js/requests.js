@@ -76,16 +76,17 @@ function renderMyRequests(data) {
       <th>Patient</th><th>Hospital</th><th>Blood</th><th>Units</th><th>Progress</th><th>Status</th><th>Date</th><th>Actions</th>
     </tr></thead>
     <tbody>${data.map(r => {
-      const donated    = r.donationsCount || 0;
+      const completed  = r.donationsCount || 0;
+      const pending    = r.pendingCount   || 0;
       const total      = r.unitsRequired;
       const remaining  = (r.remainingUnits != null) ? r.remainingUnits : total;
-      const pct        = total > 0 ? Math.round(((total - remaining) / total) * 100) : 0;
+      const pct        = total > 0 ? Math.round((completed / total) * 100) : 0;
       const { label, cls } = getFulfillmentLabel(r);
       return `<tr>
         <td class="bold">${r.patientName}</td>
         <td>${r.hospital}</td>
         <td><span class="blood-badge">${r.bloodType}</span></td>
-        <td style="font-weight:700;font-family:var(--font-ui)">${donated}/${total}</td>
+        <td style="font-weight:700;font-family:var(--font-ui)">${completed}/${total}${pending > 0 ? `<div style="font-size:0.68rem;color:#92400E;font-weight:600">+${pending} pending</div>` : ''}</td>
         <td style="min-width:110px">
           <div class="prog-wrap">
             <div class="prog-bar" style="width:${pct}%"></div>
@@ -108,98 +109,138 @@ function renderMyRequests(data) {
 }
 
 // ── STATUS POPUP ──────────────────────────────────────────────
+function _buildDonorCard(d, reqId) {
+  const isPending = (d.donationStatus || 'Pending') === 'Pending';
+  const cardBorder  = isPending ? '#FCD34D' : '#86EFAC';
+  const selBg       = isPending ? '#FEF3C7' : '#DCFCE7';
+  const selColor    = isPending ? '#92400E' : '#15803D';
+  const selBorder   = isPending ? '#FCD34D' : '#86EFAC';
+  const arrowColor  = isPending ? '%2392400E' : '%2315803D';
+  const arrowSvg    = "url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2210%22 height=%2210%22 viewBox=%220 0 10 10%22><path d=%22M1 3l4 4 4-4%22 stroke=%22" + arrowColor + "%22 stroke-width=%221.5%22 fill=%22none%22/></svg>')";
+
+  const schedInfo = d.scheduledDate
+    ? '<div style="font-size:0.72rem;color:#2563EB;margin-top:3px;font-weight:500">📅 ' + formatDate(d.scheduledDate) + (d.scheduledTime ? ' &nbsp;🕐 ' + d.scheduledTime : '') + '</div>'
+    : '<div style="font-size:0.72rem;color:var(--text3);margin-top:2px">No date scheduled</div>';
+
+  const avatar = (d.donorName || d.donorUsername || '?')[0].toUpperCase();
+  const displayName = d.donorName || d.donorUsername || '?';
+
+  const selectStyle = [
+    'background:' + selBg,
+    'color:' + selColor,
+    'border:1.5px solid ' + selBorder,
+    'font-size:0.73rem',
+    'font-weight:700',
+    'font-family:var(--font-ui)',
+    'padding:5px 26px 5px 10px',
+    'border-radius:8px',
+    'cursor:pointer',
+    'outline:none',
+    'appearance:none',
+    '-webkit-appearance:none',
+    'background-image:' + arrowSvg,
+    'background-repeat:no-repeat',
+    'background-position:right 7px center',
+    'min-width:122px'
+  ].join(';');
+
+  return '<div data-donor-card="' + d.donorUsername + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--surface);border-radius:10px;border:1.5px solid ' + cardBorder + '">' +
+    '<div style="width:34px;height:34px;border-radius:9px;background:var(--red-light);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--red);font-size:0.82rem;font-family:var(--font-ui);flex-shrink:0">' + avatar + '</div>' +
+    '<div style="flex:1;min-width:0">' +
+      '<div style="font-size:0.84rem;font-weight:600;color:var(--text)">' + displayName + '</div>' +
+      '<div style="font-size:0.72rem;color:var(--text3)">@' + d.donorUsername + '</div>' +
+      schedInfo +
+    '</div>' +
+    '<div style="flex-shrink:0">' +
+      '<select data-req="' + reqId + '" data-donor="' + d.donorUsername + '" onchange="handleDonorStatusChange(this,\'' + reqId + '\',\'' + d.donorUsername + '\')" style="' + selectStyle + '">' +
+        '<option value="Pending"'   + (isPending  ? ' selected' : '') + '>⏳ Pending</option>' +
+        '<option value="Completed"' + (!isPending ? ' selected' : '') + '>✅ Completed</option>' +
+      '</select>' +
+    '</div>' +
+  '</div>';
+}
+
 async function openStatusPopup(id) {
   const res = await apiFetch('/requirements/' + id);
   if (!res.success) { showToast(res.error || 'Could not load requirement.', 'error'); return; }
   const r = res.data;
-  const donated    = (r.donations || []).length;
-  const total      = r.unitsRequired;
-  const remaining  = (r.remainingUnits != null) ? r.remainingUnits : total;
-  const pct        = total > 0 ? Math.round((donated / total) * 100) : 0;
-  const { label, cls } = getFulfillmentLabel({ ...r, donationsCount: donated });
+  const allDonations = r.donations || [];
+  const completed = allDonations.filter(d => d.donationStatus === 'Completed').length;
+  const pending   = allDonations.filter(d => (d.donationStatus || 'Pending') === 'Pending').length;
+  const total     = r.unitsRequired;
+  // remainingUnits is authoritative from the DB (set correctly on completion)
+  const remaining = (r.remainingUnits != null) ? r.remainingUnits : total;
+  const pct       = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const { label, cls } = getFulfillmentLabel({ ...r, donationsCount: completed });
 
-  // Admin can see donor list
+  // Requester or admin sees the donor list with status dropdown
+  const isRequester = r.createdBy === currentUser?.username || r.username === currentUser?.username;
   let donorListHtml = '';
-  if (isAdmin() && donated > 0) {
+  if ((isAdmin() || isRequester) && allDonations.length > 0) {
     const dRes = await apiFetch('/requirements/' + id + '/donors');
     if (dRes.success && dRes.data.length) {
-      donorListHtml = `<div style="margin-top:16px">
-        <div style="font-size:0.78rem;font-weight:600;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em">Donors Who Responded</div>
-        <div style="display:flex;flex-direction:column;gap:6px">
-          ${dRes.data.map(d => `
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
-              <div style="display:flex;align-items:center;gap:8px">
-                <div style="width:30px;height:30px;border-radius:8px;background:var(--red-light);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--red);font-size:0.78rem;font-family:var(--font-ui)">${(d.donorName || d.donorUsername || '?')[0].toUpperCase()}</div>
-                <div>
-                  <div style="font-size:0.82rem;font-weight:600;color:var(--text)">${d.donorName || d.donorUsername}</div>
-                  <div style="font-size:0.72rem;color:var(--text3)">@${d.donorUsername}</div>
-                </div>
-              </div>
-              <div style="text-align:right">
-                <span class="blood-badge" style="font-size:0.68rem">${d.bloodType}</span>
-                <div style="font-size:0.7rem;color:var(--text3);margin-top:2px">${formatDate(d.donatedAt)}</div>
-              </div>
-            </div>`).join('')}
-        </div>
-      </div>`;
+      donorListHtml =
+        '<div style="margin-top:18px">' +
+          '<div style="font-size:0.75rem;font-weight:700;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.06em">Donors Who Responded</div>' +
+          '<div style="display:flex;flex-direction:column;gap:8px">' +
+            dRes.data.map(function(d) { return _buildDonorCard(d, id); }).join('') +
+          '</div>' +
+        '</div>';
     }
   }
 
-  document.getElementById('status-popup-content').innerHTML = `
-    <div style="padding:20px">
-      <!-- Header -->
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px">
-        <div>
-          <h3 style="font-family:var(--font-display);font-size:1.2rem;color:var(--text);margin-bottom:3px">${r.patientName}</h3>
-          <p style="font-size:0.8rem;color:var(--text2)">🏥 ${r.hospital}${r.location ? ' · 📍 ' + r.location : ''}</p>
-        </div>
-        <span class="blood-badge" style="font-size:1rem;padding:4px 12px">${r.bloodType}</span>
-      </div>
-
-      <!-- Progress Ring Area -->
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px">
-        <div class="status-stat-card">
-          <div class="status-stat-val" style="color:var(--red)">${total}</div>
-          <div class="status-stat-label">Required</div>
-        </div>
-        <div class="status-stat-card">
-          <div class="status-stat-val" style="color:#15803D">${donated}</div>
-          <div class="status-stat-label">Responded</div>
-        </div>
-        <div class="status-stat-card">
-          <div class="status-stat-val" style="color:#D97706">${remaining}</div>
-          <div class="status-stat-label">Remaining</div>
-        </div>
-      </div>
-
-      <!-- Progress Bar -->
-      <div style="margin-bottom:16px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <span style="font-size:0.78rem;font-weight:600;color:var(--text2)">Fulfillment Progress</span>
-          <span style="font-size:0.78rem;font-weight:700;color:var(--text);font-family:var(--font-ui)">${pct}%</span>
-        </div>
-        <div style="height:10px;background:var(--border);border-radius:99px;overflow:hidden">
-          <div style="height:100%;width:${pct}%;background:${pct===100?'#15803D':'var(--red)'};border-radius:99px;transition:width 0.6s ease"></div>
-        </div>
-      </div>
-
-      <!-- Status Badge -->
-      <div style="display:flex;align-items:center;justify-content:center;padding:10px;background:var(--surface);border-radius:10px;border:1px solid var(--border);margin-bottom:4px">
-        <span style="font-size:0.78rem;font-weight:600;color:var(--text2);margin-right:8px">Current Status:</span>
-        <span class="fulfill-badge ${cls}" style="font-size:0.82rem">${label}</span>
-      </div>
-
-      ${donorListHtml}
-    </div>`;
+  document.getElementById('status-popup-content').innerHTML =
+    '<div style="padding:20px">' +
+      '<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px">' +
+        '<div>' +
+          '<h3 style="font-family:var(--font-display);font-size:1.2rem;color:var(--text);margin-bottom:3px">' + r.patientName + '</h3>' +
+          '<p style="font-size:0.8rem;color:var(--text2)">🏥 ' + r.hospital + (r.location ? ' · 📍 ' + r.location : '') + '</p>' +
+        '</div>' +
+        '<span class="blood-badge" style="font-size:1rem;padding:4px 12px">' + r.bloodType + '</span>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px">' +
+        '<div class="status-stat-card"><div class="status-stat-val" style="color:var(--red)">' + total + '</div><div class="status-stat-label">Required</div></div>' +
+        '<div class="status-stat-card"><div class="status-stat-val" style="color:#15803D">' + completed + '</div><div class="status-stat-label">Completed</div></div>' +
+        '<div class="status-stat-card"><div class="status-stat-val" style="color:#D97706">' + remaining + '</div><div class="status-stat-label">Remaining</div></div>' +
+      '</div>' +
+      (pending > 0 && r.status !== 'Fulfilled' ? '<div style="font-size:0.75rem;color:#92400E;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:6px 12px;margin-bottom:12px">⏳ ' + pending + ' donor' + (pending > 1 ? 's' : '') + ' scheduled — awaiting confirmation</div>' : '') +
+      '<div style="margin-bottom:16px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+          '<span style="font-size:0.78rem;font-weight:600;color:var(--text2)">Fulfillment Progress</span>' +
+          '<span style="font-size:0.78rem;font-weight:700;color:var(--text);font-family:var(--font-ui)">' + pct + '%</span>' +
+        '</div>' +
+        '<div style="height:10px;background:var(--border);border-radius:99px;overflow:hidden">' +
+          '<div style="height:100%;width:' + pct + '%;background:' + (pct === 100 ? '#15803D' : 'var(--red)') + ';border-radius:99px;transition:width 0.6s ease"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;justify-content:center;padding:10px;background:var(--surface);border-radius:10px;border:1px solid var(--border);margin-bottom:4px">' +
+        '<span style="font-size:0.78rem;font-weight:600;color:var(--text2);margin-right:8px">Current Status:</span>' +
+        '<span class="fulfill-badge ' + cls + '" style="font-size:0.82rem">' + label + '</span>' +
+      '</div>' +
+      donorListHtml +
+    '</div>';
 
   openModal('status-popup-modal');
 }
+
+
 
 // ── RESPOND TO REQUIREMENTS (for matching users) ──────────────
 async function loadOpenRequirements() {
   const el = document.getElementById('respond-req-view');
   if (!el) return;
   el.innerHTML = '<div class="spinner"></div>';
+
+  // Always fetch fresh profile so lastDonationDate (and thus eligibility) is current.
+  // This ensures that after a requester marks a donation Completed, the donor sees
+  // the correct "Not Eligible" state the next time they open this screen.
+  try {
+    const profileRes = await apiFetch('/auth/profile');
+    if (profileRes.success) {
+      currentUser = { ...currentUser, ...profileRes.user };
+      localStorage.setItem('bl_user', JSON.stringify(currentUser));
+    }
+  } catch(e) { /* use cached */ }
 
   const res = await apiFetch('/requirements?status=Open');
   if (!res.success) {
@@ -208,7 +249,7 @@ async function loadOpenRequirements() {
   }
 
   const userBT = currentUser?.bloodType || '';
-  const reqs = res.data; // Show ALL open requirements, no blood type filter
+  const reqs = res.data;
 
   allOpenRequirements = reqs;
 
@@ -244,11 +285,13 @@ function renderOpenRequirements(data, userBT) {
     ${userBT ? `<div style="font-size:0.8rem;color:var(--text2);margin-bottom:12px">Showing all requests — <strong>I'll Donate</strong> and <strong>Decline</strong> buttons appear on requests matching your blood type (<span style="color:var(--red);font-weight:700">${userBT}</span>).</div>` : `<div style="font-size:0.8rem;color:var(--text3);margin-bottom:12px">Set your blood type in Profile to enable donating to matching requests.</div>`}
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">
       ${data.map(r => {
-        const donated   = (r.donations || []).length;
+        const completed = (r.donations || []).filter(d => d.donationStatus === 'Completed').length;
         const total     = r.unitsRequired;
         const remaining = (r.remainingUnits != null) ? r.remainingUnits : total;
-        const pct       = total > 0 ? Math.round((donated / total) * 100) : 0;
-        const alreadyDonated  = (r.donations || []).some(d => d.donorUsername === currentUser?.username);
+        const pct       = total > 0 ? Math.round((completed / total) * 100) : 0;
+        const myDonation      = (r.donations || []).find(d => d.donorUsername === currentUser?.username);
+        const alreadyDonated  = !!myDonation;
+        const donationDone    = myDonation?.donationStatus === 'Completed';
         const alreadyDeclined = (r.declines  || []).some(d => d.donorUsername === currentUser?.username);
         const isMatch = userBT && r.bloodType === userBT;
 
@@ -258,7 +301,9 @@ function renderOpenRequirements(data, userBT) {
         let footerActions = '';
         if (isMatch) {
           if (alreadyDonated) {
-            footerActions = `<span class="respond-done-badge">✅ You responded</span>`;
+            footerActions = donationDone
+              ? `<span class="respond-done-badge" style="background:#DCFCE7;color:#15803D;border:1.5px solid #86EFAC">✅ You donated</span>`
+              : `<span class="respond-done-badge">⏳ Scheduled</span>`;
           } else if (alreadyDeclined) {
             footerActions = `<span class="respond-declined-badge">❌ Declined</span>`;
           } else if (isNotEligible) {
@@ -288,7 +333,7 @@ function renderOpenRequirements(data, userBT) {
           </div>
           <div class="respond-card-prog">
             <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text3);margin-bottom:4px">
-              <span>${donated} donated</span><span>${remaining} needed</span>
+              <span>${completed} donated</span><span>${remaining} needed</span>
             </div>
             <div style="height:7px;background:var(--border);border-radius:99px;overflow:hidden">
               <div style="height:100%;width:${pct}%;background:var(--red);border-radius:99px"></div>
@@ -304,21 +349,16 @@ function renderOpenRequirements(data, userBT) {
 }
 
 async function respondToDonate(id, patientName, bloodType) {
-  const confirmed = await showDonateConfirm(patientName, bloodType);
-  if (!confirmed) return;
+  const result = await showDonateSchedule(patientName, bloodType);
+  if (!result) return;
 
-  const res = await apiFetch('/requirements/' + id + '/donate', { method: 'POST', body: JSON.stringify({}) });
+  const { scheduledDate, scheduledTime } = result;
+  const body = { scheduledDate, scheduledTime, donationStatus: 'Pending' };
+
+  const res = await apiFetch('/requirements/' + id + '/donate', { method: 'POST', body: JSON.stringify(body) });
   if (res.success) {
-    showToast(res.message || 'Donation recorded!', 'success');
-    // Refresh currentUser so 90-day restriction takes effect immediately
-    try {
-      const profileRes = await apiFetch('/auth/profile');
-      if (profileRes.success) {
-        currentUser = { ...currentUser, ...profileRes.user };
-        localStorage.setItem('bl_user', JSON.stringify(currentUser));
-      }
-    } catch(e) { /* use cached */ }
-    loadOpenRequirements(); // also calls updateRespondBadge internally
+    showToast('✅ Donation scheduled! The requester has been notified.', 'success');
+    loadOpenRequirements();
     loadMyDonationHistory();
   } else {
     showToast(res.error || 'Could not record donation.', 'error');
@@ -329,22 +369,99 @@ async function respondToDecline(id) {
   const res = await apiFetch('/requirements/' + id + '/decline', { method: 'POST', body: JSON.stringify({}) });
   if (res.success) {
     showToast('Response recorded.', 'success');
-    loadOpenRequirements(); // also calls updateRespondBadge internally
+    loadOpenRequirements();
   } else {
     showToast(res.error || 'Could not record response.', 'error');
   }
 }
 
-function showDonateConfirm(patientName, bloodType) {
+function showDonateSchedule(patientName, bloodType) {
   return new Promise(resolve => {
+    // Pre-fill date to today
+    const today = new Date().toISOString().split('T')[0];
+    const dateEl = document.getElementById('donate-schedule-date');
+    const timeEl = document.getElementById('donate-schedule-time');
+    const errEl  = document.getElementById('donate-schedule-err');
+    if (dateEl) { dateEl.value = today; dateEl.min = today; }
+    if (timeEl) timeEl.value = '';
+    if (errEl)  { errEl.style.display = 'none'; errEl.textContent = ''; }
+
     document.getElementById('donate-confirm-body').innerHTML = `
-      <div style="text-align:center;padding:8px 0">
-        <div style="font-size:2.5rem;font-weight:700;color:var(--red);font-family:var(--font-display);margin-bottom:8px">${bloodType}</div>
-        <p style="color:var(--text2);font-size:0.9rem">Confirm your donation for <strong>${patientName}</strong>?</p>
-        <p style="font-size:0.78rem;color:var(--text3);margin-top:6px">This will reduce the required units count and be recorded in the system.</p>
+      <div style="text-align:center;padding:4px 0 12px">
+        <div style="font-size:2.2rem;font-weight:700;color:var(--red);font-family:var(--font-display);margin-bottom:6px">${bloodType}</div>
+        <p style="color:var(--text2);font-size:0.88rem">You're committing to donate for <strong>${patientName}</strong>.</p>
+        <p style="font-size:0.75rem;color:var(--text3);margin-top:4px">Choose when you plan to donate below.</p>
       </div>`;
-    document.getElementById('donate-confirm-yes').onclick = () => { closeModal('donate-confirm-modal'); resolve(true); };
-    document.getElementById('donate-confirm-no').onclick  = () => { closeModal('donate-confirm-modal'); resolve(false); };
+
+    document.getElementById('donate-confirm-yes').onclick = () => {
+      const date = dateEl?.value;
+      const time = timeEl?.value;
+      if (!date) {
+        if (errEl) { errEl.textContent = 'Please select a donation date.'; errEl.style.display = 'block'; }
+        return;
+      }
+      if (!time) {
+        if (errEl) { errEl.textContent = 'Please select a preferred time.'; errEl.style.display = 'block'; }
+        return;
+      }
+      closeModal('donate-confirm-modal');
+      resolve({ scheduledDate: date, scheduledTime: time });
+    };
+    document.getElementById('donate-confirm-no').onclick = () => {
+      closeModal('donate-confirm-modal');
+      resolve(null);
+    };
     openModal('donate-confirm-modal');
   });
+}
+
+// ── DONOR STATUS DROPDOWN CHANGE ─────────────────────────────
+async function handleDonorStatusChange(selectEl, requirementId, donorUsername) {
+  const newStatus = selectEl.value;
+  const prevValue = newStatus === 'Completed' ? 'Pending' : 'Completed';
+
+  // Visually update the select immediately for responsiveness
+  const isPendingNow = newStatus === 'Pending';
+  selectEl.style.background    = isPendingNow ? '#FEF3C7' : '#DCFCE7';
+  selectEl.style.color         = isPendingNow ? '#92400E' : '#15803D';
+  selectEl.style.borderColor   = isPendingNow ? '#FCD34D' : '#86EFAC';
+  const card = selectEl.closest('[data-donor-card]');
+  if (card) card.style.borderColor = isPendingNow ? '#FCD34D' : '#86EFAC';
+
+  const res = await apiFetch(
+    '/requirements/' + requirementId + '/donations/' + encodeURIComponent(donorUsername) + '/status',
+    { method: 'POST', body: JSON.stringify({ donationStatus: newStatus }) }
+  );
+
+  if (res.success) {
+    if (newStatus === 'Completed') {
+      showToast('✅ Marked as Completed! Last donation date updated for @' + donorUsername + '.', 'success');
+      // Always refresh profile from server — lastDonationDate may have changed for the donor,
+      // and if the requester IS the donor, their local eligibility state needs updating too.
+      try {
+        const profileRes = await apiFetch('/auth/profile');
+        if (profileRes.success) {
+          currentUser = { ...currentUser, ...profileRes.user };
+          localStorage.setItem('bl_user', JSON.stringify(currentUser));
+        }
+      } catch(e) { /* use cached */ }
+      // Reload all three views that could be stale after a completion
+      loadMyRequests();          // Issue 1: refresh requester's My Requests table
+      loadOpenRequirements();    // refresh open list (pledges cleared, eligibility updated)
+      loadMyDonationHistory();   // refresh donor history
+    } else {
+      showToast('Set back to Pending.', 'success');
+      loadMyRequests();
+    }
+    // Re-open the popup to reflect latest donor list state
+    openStatusPopup(requirementId);
+  } else {
+    // Revert on failure
+    selectEl.value = prevValue;
+    const wasPending = prevValue === 'Pending';
+    selectEl.style.background  = wasPending ? '#FEF3C7' : '#DCFCE7';
+    selectEl.style.color       = wasPending ? '#92400E' : '#15803D';
+    selectEl.style.borderColor = wasPending ? '#FCD34D' : '#86EFAC';
+    showToast(res.error || 'Could not update status.', 'error');
+  }
 }
