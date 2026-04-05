@@ -187,15 +187,18 @@ function friendlyError(err, context = '') {
 // Helper: create in-app notifications — only for available users with matching blood type
 async function createInAppNotifications(requirement) {
   try {
-    const { bloodType, patientName, hospital, location, unitsRequired, urgency, _id } = requirement;
+    const { bloodType, patientName, hospital, location, unitsRequired, urgency, _id, createdBy } = requirement;
 
-    // Only notify users (not admins) whose blood type matches AND who are available to donate
+    // Notify users (not admins) whose blood type matches, are available, and are not the requester.
+    // Use $ne: false for isAvailable so users without the field set still get notified.
     const matchingUsers = await User.find({
       role:        'user',
       bloodType:   bloodType,
-      isAvailable: true,
+      isAvailable: { $ne: false },
+      username:    { $ne: createdBy },
     }, 'username').lean();
 
+    console.log(`[Notifications] bloodType=${bloodType}, createdBy=${createdBy}, matchingUsers=${matchingUsers.length}`);
     if (!matchingUsers.length) return;
 
     const urgencyLabel = urgency === 'Critical' ? '🚨 Critical' :
@@ -223,60 +226,58 @@ async function createInAppNotifications(requirement) {
 }
 
 // Helper: send SMS to matching available donors for a blood requirement
+// Helper: send SMS to matching available donors for a blood requirement
 async function notifyMatchingDonors(requirement) {
   if (!twilioClient) return { sent: 0, failed: 0, skipped: 'Twilio not configured' };
 
-  const { bloodType, patientName, hospital, location, unitsRequired, urgency } = requirement;
+  const { bloodType, patientName, hospital, location, unitsRequired, urgency, createdBy } = requirement;
 
-  // Find available donors with matching blood type who have a phone number
-  const donors = await Donor.find({
+  // 1. Registered app users: matching blood type, have a mobile, available, not the requester.
+  //    Use $ne:false so users without isAvailable explicitly set are still included.
+  const matchingUsers = await User.find({
+    role:        'user',
     bloodType,
-    isAvailable: true,
-    phone: { $exists: true, $ne: '' }
-  }).lean();
+    isAvailable: { $ne: false },
+    mobile:      { $exists: true, $ne: '' },
+    username:    { $ne: createdBy },
+  }, 'mobile firstName lastName username').lean();
 
-  if (!donors.length) return { sent: 0, failed: 0, skipped: 'No matching donors' };
+  const targets = matchingUsers.map(u => ({ phone: u.mobile, name: u.firstName || u.username }));
 
-  // Build the SMS message
-  const urgencyText = urgency === 'Critical' ? '🚨 URGENT' : urgency === 'High' ? '⚠️ HIGH PRIORITY' : 'Blood Needed';
+  console.log(`[SMS] bloodType=${bloodType}, createdBy=${createdBy}, targets=${targets.length}`);
+  if (!targets.length) return { sent: 0, failed: 0, skipped: 'No matching recipients' };
+
+  const urgencyText  = urgency === 'Critical' ? 'URGENT'
+                     : urgency === 'High'     ? 'HIGH PRIORITY'
+                     : 'Blood Needed';
   const locationText = location ? ` in ${location}` : '';
-  const message =
-    `${urgencyText} - HSBlood Alert
-` +
-    `Blood Type: ${bloodType} (${unitsRequired} unit${unitsRequired !== 1 ? 's' : ''} needed)
-` +
-    `Patient: ${patientName}
-` +
-    `Hospital: ${hospital}${locationText}
-` +
-    `If you can donate, please contact the hospital directly.
-` +
-    `Reply STOP to opt out.`;
+  const message = [
+    `${urgencyText} - HSBlood Alert`,
+    `Blood Type: ${bloodType} (${unitsRequired} unit${unitsRequired !== 1 ? 's' : ''} needed)`,
+    `Patient: ${patientName}`,
+    `Hospital: ${hospital}${locationText}`,
+    `Open the HSBlood app to respond.`,
+    `Reply STOP to opt out.`,
+  ].join('\n');
 
   let sent = 0, failed = 0;
   const errors = [];
 
-  // Send to each donor — do not await all at once to avoid rate limits
-  for (const donor of donors) {
+  for (const target of targets) {
     try {
-      // Normalise phone: ensure it starts with + for international format
-      let phone = donor.phone.replace(/[\s\-()]/g, '');
-      if (!phone.startsWith('+')) phone = '+91' + phone; // default India country code
-      await twilioClient.messages.create({
-        body: message,
-        from: TWILIO_FROM,
-        to:   phone,
-      });
+      let phone = target.phone.replace(/[\s\-()]/g, '');
+      if (!phone.startsWith('+')) phone = '+91' + phone;
+      await twilioClient.messages.create({ body: message, from: TWILIO_FROM, to: phone });
       sent++;
     } catch(err) {
       failed++;
-      errors.push({ donor: `${donor.firstName} ${donor.lastName}`, error: 'SMS could not be delivered.' });
+      errors.push({ name: target.name, phone: target.phone, error: err.message });
     }
   }
 
-  console.log(`📱 SMS: ${sent} sent, ${failed} failed for ${bloodType} requirement`);
+  console.log(`SMS: ${sent} sent, ${failed} failed for ${bloodType} requirement`);
   if (errors.length) console.warn('SMS errors:', errors);
-  return { sent, failed, total: donors.length };
+  return { sent, failed, total: targets.length };
 }
 
 const app = express();
@@ -351,17 +352,40 @@ const userSchema = new mongoose.Schema({
   role:             { type: String, enum: ['admin', 'user'], default: 'user' },
   bloodType:        { type: String, default: '', trim: true },
   // Enhanced donor fields
-  mobile:           { type: String, default: '', trim: true, unique: true, sparse: true },
+  mobile:           { type: String, default: null, trim: true, unique: true, sparse: true },
   isAvailable:      { type: Boolean, default: true },
   address:          { type: String, default: '', trim: true },
+  city:             { type: String, default: '', trim: true },
+  country:          { type: String, default: '', trim: true },
   lastDonationDate: { type: Date, default: null },
   firstName:        { type: String, default: '', trim: true },
   lastName:         { type: String, default: '', trim: true },
-  donorId:          { type: mongoose.Schema.Types.ObjectId, ref: 'Donor', default: null },
   fcmToken:         { type: String, default: '' },
   createdAt:        { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', userSchema);
+// ── Helper: convert a User doc to the "donor" shape the frontend expects ──────
+// The frontend donor screens use phone/firstName/lastName — we map from User fields.
+function userToDonor(u) {
+  return {
+    _id:             u._id,
+    firstName:       u.firstName  || '',
+    lastName:        u.lastName   || '',
+    email:           u.email      || '',
+    phone:           u.mobile     || '',   // mobile → phone
+    address:         u.address    || '',
+    city:            u.city       || '',
+    country:         u.country    || '',
+    bloodType:       u.bloodType  || '',
+    isAvailable:     u.isAvailable !== false,
+    lastDonationDate:u.lastDonationDate || null,
+    createdAt:       u.createdAt,
+    updatedAt:       u.updatedAt  || u.createdAt,
+    username:        u.username,
+    role:            u.role,
+  };
+}
+
 
 // OTP Store (in-memory; for production use Redis or a DB collection)
 const otpStore = new Map(); // key: mobile → { otp, expiresAt, purpose }
@@ -371,16 +395,20 @@ function generateOTP() {
 }
 
 async function sendOTP(mobile, otp) {
-  // If Twilio is configured, send real SMS; otherwise log to console (dev mode)
   if (twilioClient && TWILIO_FROM) {
     let phone = mobile.replace(/[\s\-()]/g, '');
     if (!phone.startsWith('+')) phone = '+91' + phone;
-    await twilioClient.messages.create({
-      body: `Your HSBlood OTP is: ${otp}. Valid for 10 minutes. Do not share this with anyone.`,
-      from: TWILIO_FROM,
-      to: phone,
-    });
-    console.log(`📱 OTP sent to ${phone}`);
+    try {
+      await twilioClient.messages.create({
+        body: `Your HSBlood OTP is: ${otp}. Valid for 10 minutes. Do not share this with anyone.`,
+        from: TWILIO_FROM,
+        to:   phone,
+      });
+      console.log(`📱 OTP sent to ${phone}`);
+    } catch (twilioErr) {
+      console.error(`[Twilio] Failed to send OTP to ${phone}:`, twilioErr.message);
+      throw new Error(`Could not send OTP via SMS. Twilio error: ${twilioErr.message}`);
+    }
   } else {
     // Dev mode — print OTP to console so testing is possible without Twilio
     console.log(`🔐 [DEV MODE] OTP for ${mobile}: ${otp}`);
@@ -411,24 +439,6 @@ const bloodTypeSchema = new mongoose.Schema({
   createdAt:      { type: Date, default: Date.now }
 });
 const BloodType = mongoose.model('BloodType', bloodTypeSchema);
-
-// Donor
-const donorSchema = new mongoose.Schema({
-  firstName:       { type: String, required: true, trim: true },
-  lastName:        { type: String, required: true, trim: true },
-  email:           { type: String, required: false, unique: true, sparse: true, lowercase: true, trim: true, default: null },
-  phone:           { type: String, required: true },
-  address:         { type: String, default: '' },
-  city:            { type: String, default: 'N/A' },
-  country:         { type: String, default: 'N/A' },
-  bloodType:       { type: String, required: true, enum: ['A+','A-','B+','B-','AB+','AB-','O+','O-'] },
-  lastDonationDate:{ type: Date },
-  isAvailable:     { type: Boolean, default: true },
-  createdAt:       { type: Date, default: Date.now },
-  updatedAt:       { type: Date, default: Date.now }
-});
-donorSchema.pre('save', function(next){ this.updatedAt = new Date(); next(); });
-const Donor = mongoose.model('Donor', donorSchema);
 
 // Blood Requirement
 const bloodRequirementSchema = new mongoose.Schema({
@@ -486,6 +496,19 @@ const InfoEntry = mongoose.model('InfoEntry', infoEntrySchema);
 // ─── SEED DEFAULT ACCOUNTS ────────────────────────────────────
 async function seedAccounts() {
   try {
+    // ── Migration: fix existing '' mobile/email to null so sparse index works ──
+    const mobileFixed = await User.updateMany(
+      { mobile: '' }, { $set: { mobile: null } }
+    );
+    if (mobileFixed.modifiedCount > 0)
+      console.log(`🔧 Migrated ${mobileFixed.modifiedCount} user(s): mobile '' → null`);
+
+    const emailFixed = await User.updateMany(
+      { email: '' }, { $set: { email: null } }
+    );
+    if (emailFixed.modifiedCount > 0)
+      console.log(`🔧 Migrated ${emailFixed.modifiedCount} user(s): email '' → null`);
+
     const adminUser = process.env.ADMIN_USERNAME || 'admin';
     const adminPass = process.env.ADMIN_PASSWORD || 'admin123';
     const normalUser = process.env.USER_USERNAME || 'user';
@@ -496,13 +519,6 @@ async function seedAccounts() {
       const hashed = await bcrypt.hash(adminPass, 10);
       await User.create({ username: adminUser, password: hashed, role: 'admin' });
       console.log(`✅ Admin account created → username: ${adminUser}  password: ${adminPass}`);
-    }
-
-    const existingUser = await User.findOne({ username: normalUser });
-    if (!existingUser) {
-      const hashed = await bcrypt.hash(normalPass, 10);
-      await User.create({ username: normalUser, password: hashed, role: 'user' });
-      console.log(`✅ User account created  → username: ${normalUser}  password: ${normalPass}`);
     }
   } catch(err) {
     console.error('Seed error:', err.message);
@@ -551,24 +567,22 @@ app.post('/api/auth/otp/send', async (req, res) => {
     const purpose = (req.body.purpose || 'login').trim();
 
     // Check if mobile is registered
-    const existingUser  = await User.findOne({ mobile: mob }).lean();
-    const existingDonor = await Donor.findOne({ phone: mob }).lean();
+    const existingUser = await User.findOne({ mobile: mob }).lean();
 
     // Block login attempts for unregistered numbers
-    if (purpose !== 'register' && !existingUser && !existingDonor) {
+    if (purpose !== 'register' && !existingUser) {
       return res.status(404).json({
         success: false,
         error: 'No account found for this mobile number. Please register first.',
       });
     }
 
-    // Block register attempts for already-registered numbers — do NOT send OTP
-    if (purpose === 'register' && (existingUser || existingDonor)) {
+    // Block register attempts for already-registered numbers
+    if (purpose === 'register' && existingUser) {
       return res.status(409).json({
         success: false,
         error: 'This mobile number is already registered. Please login instead.',
-        isExistingUser:  !!existingUser,
-        isExistingDonor: !!existingDonor && !existingUser,
+        isExistingUser: true,
       });
     }
 
@@ -580,15 +594,13 @@ app.post('/api/auth/otp/send', async (req, res) => {
     res.json({
       success: true,
       message: 'OTP sent successfully! Check your mobile.',
-      isExistingUser:  !!existingUser,
-      isExistingDonor: !!existingDonor && !existingUser,
+      isExistingUser: !!existingUser,
     });
   } catch(err) {
-    res.status(500).json({ success: false, error: friendlyError(err, 'OTP Send') });
+    console.error('[OTP Send]', err.message);
+    res.status(500).json({ success: false, error: err.message || friendlyError(err, 'OTP Send') });
   }
 });
-
-// ── OTP: Login with mobile + OTP (existing user OR existing donor) ──
 app.post('/api/auth/otp/login', async (req, res) => {
   try {
     const { mobile, otp } = req.body;
@@ -612,31 +624,11 @@ app.post('/api/auth/otp/login', async (req, res) => {
     let user = await User.findOne({ mobile: mob });
 
     if (!user) {
-      // Check if there is a donor with this phone — auto-create a user account for them
-      const donor = await Donor.findOne({ phone: mob }).lean();
-      if (donor) {
-        const autoUsername = `hs_${mob.slice(-6)}`;
-        const hashedPwd = await bcrypt.hash(mob + '_auto_' + Date.now(), 10);
-        user = await User.create({
-          username:         autoUsername,
-          password:         hashedPwd,
-          mobile:           mob,
-          email:            donor.email || '',
-          bloodType:        donor.bloodType || '',
-          isAvailable:      donor.isAvailable,
-          address:          donor.address || '',
-          lastDonationDate: donor.lastDonationDate || null,
-          role:             'user',
-          donorId:          donor._id,
-        });
-        console.log(`✅ Auto-created user for donor ${donor.firstName} ${donor.lastName} → ${autoUsername}`);
-      } else {
-        return res.status(404).json({
-          success: false,
-          error: 'No account found for this mobile number. Please register first.',
-          notRegistered: true,
-        });
-      }
+      return res.status(404).json({
+        success: false,
+        error: 'No account found for this mobile number. Please register first.',
+        notRegistered: true,
+      });
     }
 
     const token = jwt.sign(
@@ -659,7 +651,6 @@ app.post('/api/auth/otp/login', async (req, res) => {
         isAvailable:      user.isAvailable,
         address:          user.address || '',
         lastDonationDate: user.lastDonationDate || null,
-        donorId:          user.donorId || null,
       },
       message: `Welcome back!`,
     });
@@ -703,43 +694,21 @@ app.post('/api/auth/otp/register', async (req, res) => {
     if (existingUser)
       return res.status(409).json({ success: false, error: 'An account with this mobile number already exists. Please log in.' });
 
-    // Create or link donor record
-    let donor = await Donor.findOne({ phone: mob });
-    if (!donor) {
-      const donorEmail = email ? email.trim().toLowerCase() : `hs_${mob}@hsblood.local`;
-      // Ensure email uniqueness for auto-generated emails
-      const existingDonorEmail = await Donor.findOne({ email: donorEmail });
-      const finalEmail = existingDonorEmail ? `hs_${mob}_${Date.now()}@hsblood.local` : donorEmail;
-
-      donor = await Donor.create({
-        firstName:       firstName.trim(),
-        lastName:        lastName.trim(),
-        phone:           mob,
-        email:           finalEmail,
-        address:         address ? address.trim() : '',
-        city:            'N/A',
-        country:         'N/A',
-        bloodType,
-        isAvailable:     isAvailable !== false,
-        lastDonationDate: lastDonationDate ? new Date(lastDonationDate) : undefined,
-      });
-      console.log(`✅ Donor auto-created from registration: ${firstName} ${lastName}`);
-    }
-
-    // Create user account
+    // Create user account (single record — no separate Donor table)
     const autoUsername = `hs_${mob.slice(-6)}_${Date.now().toString().slice(-4)}`;
     const hashedPwd = await bcrypt.hash(mob + '_reg_' + Date.now(), 10);
     const newUser = await User.create({
       username:         autoUsername,
       password:         hashedPwd,
       mobile:           mob,
-      email:            email ? email.trim().toLowerCase() : '',
+      email:            email ? email.trim().toLowerCase() : null,
+      firstName:        firstName.trim(),
+      lastName:         lastName.trim(),
       bloodType,
       isAvailable:      isAvailable !== false,
       address:          address ? address.trim() : '',
       lastDonationDate: lastDonationDate ? new Date(lastDonationDate) : null,
       role:             'user',
-      donorId:          donor._id,
     });
 
     const token = jwt.sign(
@@ -762,8 +731,7 @@ app.post('/api/auth/otp/register', async (req, res) => {
         isAvailable:      newUser.isAvailable,
         address:          newUser.address || '',
         lastDonationDate: newUser.lastDonationDate || null,
-        donorId:          newUser.donorId || null,
-        firstName,
+                firstName,
         lastName,
       },
       message: `Welcome to HSBlood, ${firstName}! You are now registered as a donor.`,
@@ -818,33 +786,18 @@ app.post('/api/auth/register-direct', async (req, res) => {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
       return res.status(400).json({ success: false, error: 'A valid email address is required.' });
 
-    // Create or link Donor record
-    let donor = await Donor.findOne({ phone: mob });
-    if (!donor) {
-      // Check email duplicate in donor collection
-      const emailClash = await Donor.findOne({ email: email.trim().toLowerCase() });
-      if (emailClash)
-        return res.status(409).json({ success: false, error: 'This email address is already registered.' });
-      donor = await Donor.create({
-        firstName: firstName.trim(), lastName: lastName.trim(),
-        phone: mob, email: email.trim().toLowerCase(),
-        address: address ? address.trim() : '', city: 'N/A', country: 'N/A',
-        bloodType, isAvailable: true,
-        lastDonationDate: lastDonationDate ? new Date(lastDonationDate) : undefined,
-      });
-      console.log(`✅ Donor created: ${firstName} ${lastName}`);
-    }
-
-    // Create User account
+    // Create User account (single record — no separate Donor table)
     const hashedPwd = await bcrypt.hash(mob + '_reg_' + Date.now(), 10);
     const newUser = await User.create({
       username: uname, password: hashedPwd, mobile: mob,
-      email: email.trim().toLowerCase(),
+      email: email ? email.trim().toLowerCase() : null,
+      firstName: firstName.trim(),
+      lastName:  lastName.trim(),
       bloodType,
       isAvailable: true,
       address: address ? address.trim() : '',
       lastDonationDate: lastDonationDate ? new Date(lastDonationDate) : null,
-      role: 'user', donorId: donor._id,
+      role: 'user',
     });
 
     const token = jwt.sign({ id: newUser._id, username: newUser.username, role: newUser.role }, JWT_SECRET, { expiresIn: '24h' });
@@ -856,7 +809,7 @@ app.post('/api/auth/register-direct', async (req, res) => {
         username: newUser.username, role: newUser.role, email: newUser.email || '',
         bloodType: newUser.bloodType || '', mobile: newUser.mobile || '',
         isAvailable: newUser.isAvailable, address: newUser.address || '',
-        lastDonationDate: newUser.lastDonationDate || null, donorId: newUser.donorId || null,
+        lastDonationDate: newUser.lastDonationDate || null,
         firstName, lastName,
       },
       message: `Welcome to HSBlood, ${firstName}!`,
@@ -902,10 +855,7 @@ app.post('/api/auth/mobile/update', authenticate, async (req, res) => {
     user.mobile = mob;
     await user.save();
 
-    // Sync donor record phone if linked
-    if (user.donorId) {
-      await Donor.findByIdAndUpdate(user.donorId, { phone: mob, updatedAt: new Date() }).catch(() => {});
-    }
+    // No separate Donor record to sync — mobile is stored directly on User.
 
     console.log(`✅ Mobile updated for ${user.username}: ${oldMobile} → ${mob}`);
     res.json({ success: true, message: 'Mobile number updated successfully!' });
@@ -943,10 +893,12 @@ app.post('/api/auth/login', async (req, res) => {
         role:             user.role,
         email:            user.email || '',
         bloodType:        user.bloodType || '',
+        mobile:           user.mobile || '',
+        firstName:        user.firstName || '',
+        lastName:         user.lastName || '',
         isAvailable:      user.isAvailable,
         address:          user.address || '',
         lastDonationDate: user.lastDonationDate || null,
-        donorId:          user.donorId || null,
       },
       message: `Welcome back, ${user.username}!`
     });
@@ -988,9 +940,9 @@ app.post('/api/auth/register', async (req, res) => {
     const newUser = await User.create({
       username:  username.trim().toLowerCase(),
       password:  hashed,
-      email:     email ? email.trim().toLowerCase() : '',
+      email:     email ? email.trim().toLowerCase() : null,
       role:      'user',
-      bloodType: req.body.bloodType ? req.body.bloodType.trim() : ''
+      bloodType: req.body.bloodType ? req.body.bloodType.trim() : '',
     });
 
     console.log(`✅ New HS Employee registered → username: ${newUser.username}`);
@@ -1022,9 +974,7 @@ app.post('/api/auth/availability', authenticate, async (req, res) => {
     if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
     user.isAvailable = isAvailable;
     await user.save();
-    if (user.donorId) {
-      await Donor.findByIdAndUpdate(user.donorId, { isAvailable, updatedAt: new Date() }).catch(() => {});
-    }
+    // No separate Donor record to sync — isAvailable stored directly on User.
     res.json({ success: true, isAvailable });
   } catch(err) {
     res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
@@ -1128,18 +1078,20 @@ app.delete('/api/blood-types/:id', authenticate, adminOnly, async (req, res) => 
 
 // ─── DONOR ROUTES ─────────────────────────────────────────────
 
+// ── GET /api/donors — list all user-donors ─────────────────────────────────
 app.get('/api/donors', authenticate, async (req, res) => {
   try {
-    const filter = {};
+    const filter = { role: 'user' };
     if (req.query.bloodType) filter.bloodType = req.query.bloodType;
-    if (req.query.available) filter.isAvailable = req.query.available === 'true';
-    if (req.query.email)     filter.email = req.query.email.trim().toLowerCase();
-    const donors = await Donor.find(filter).sort('-createdAt');
-    res.json({ success: true, data: donors, count: donors.length });
+    if (req.query.available !== undefined && req.query.available !== '')
+      filter.isAvailable = req.query.available === 'true';
+    if (req.query.email) filter.email = req.query.email.trim().toLowerCase();
+    const users = await User.find(filter, '-password').sort('-createdAt').lean();
+    res.json({ success: true, data: users.map(userToDonor), count: users.length });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
-// Admin only — bulk upload donors from parsed Excel data
+// Admin only — bulk upload donors from Excel (creates User records)
 app.post('/api/donors/bulk', authenticate, adminOnly, async (req, res) => {
   try {
     const { donors } = req.body;
@@ -1147,62 +1099,61 @@ app.post('/api/donors/bulk', authenticate, adminOnly, async (req, res) => {
       return res.status(400).json({ success: false, error: 'No donor data provided.' });
 
     const VALID_BLOOD_TYPES = ['A+','A-','B+','B-','AB+','AB-','O+','O-'];
-
     const results = { inserted: 0, skipped: 0, errors: [] };
 
     for (let i = 0; i < donors.length; i++) {
       const raw = donors[i];
       const rowNum = i + 2;
-
       try {
-        // Normalise blood type
         const bt = (raw.bloodType || '').toString().trim().toUpperCase()
           .replace('POSITIVE','+').replace('NEGATIVE','-');
-
-        // Validate required fields (firstName, lastName, phone, bloodType only)
         if (!raw.firstName || !raw.lastName)
           throw new Error('First name and last name are required');
         if (!raw.phone)
           throw new Error('Phone is required');
         if (!VALID_BLOOD_TYPES.includes(bt))
-          throw new Error(`Invalid blood type "${bt}". Must be one of: ${VALID_BLOOD_TYPES.join(', ')}`);
+          throw new Error(`Invalid blood type "${bt}"`);
 
-        // Parse last donation date (optional)
         let lastDonationDate;
         if (raw.lastDonationDate) {
-          if (typeof raw.lastDonationDate === 'number') {
-            lastDonationDate = new Date(Math.round((raw.lastDonationDate - 25569) * 86400 * 1000));
-          } else {
-            lastDonationDate = new Date(raw.lastDonationDate);
-          }
+          lastDonationDate = typeof raw.lastDonationDate === 'number'
+            ? new Date(Math.round((raw.lastDonationDate - 25569) * 86400 * 1000))
+            : new Date(raw.lastDonationDate);
           if (isNaN(lastDonationDate.getTime())) lastDonationDate = undefined;
         }
 
-        // Email is optional — only include if provided and not empty
-        const emailRaw = raw.email ? raw.email.toString().trim().toLowerCase() : null;
+        const phone  = raw.phone.toString().trim();
+        const email  = raw.email ? raw.email.toString().trim().toLowerCase() : null;
+        const uname  = 'donor_' + phone.replace(/\D/g,'').slice(-8) + '_' + Date.now().toString().slice(-4);
+        const hashed = await bcrypt.hash(phone + '_bulk_' + Date.now(), 10);
 
-        const donorDoc = {
+        // Check duplicate by mobile
+        const clash = await User.findOne({ mobile: phone });
+        if (clash) throw new Error('Phone already registered');
+
+        await User.create({
+          username:        uname,
+          password:        hashed,
+          mobile:          phone,
+          email,
           firstName:       raw.firstName.toString().trim(),
           lastName:        raw.lastName.toString().trim(),
-          phone:           raw.phone.toString().trim(),
-          email:           emailRaw || undefined,
           address:         (raw.address || '').toString().trim(),
-          city:            'N/A',
-          country:         'N/A',
+          city:            (raw.city    || '').toString().trim(),
+          country:         (raw.country || '').toString().trim(),
           bloodType:       bt,
           isAvailable:     String(raw.isAvailable).toLowerCase() !== 'false',
-          lastDonationDate
-        };
-
-        await Donor.create(donorDoc);
+          lastDonationDate,
+          role:            'user',
+        });
         results.inserted++;
       } catch(rowErr) {
-        const isDuplicate = rowErr.code === 11000;
+        const isDuplicate = rowErr.code === 11000 || rowErr.message.includes('already registered');
         results.skipped++;
         results.errors.push({
           row: rowNum,
           phone: (raw.phone || '').toString(),
-          reason: isDuplicate ? 'Phone or email already exists in registry' : (rowErr.name === 'ValidationError' ? Object.values(rowErr.errors).map(e => e.message).join('; ') : rowErr.message)
+          reason: isDuplicate ? 'Phone already exists in registry' : rowErr.message,
         });
       }
     }
@@ -1210,98 +1161,101 @@ app.post('/api/donors/bulk', authenticate, adminOnly, async (req, res) => {
     res.status(207).json({
       success: true,
       message: `Bulk upload complete: ${results.inserted} inserted, ${results.skipped} skipped.`,
-      data: results
+      data: results,
     });
-  } catch(err) {
-    res.status(500).json({ success: false, error: friendlyError(err, 'Server') });
-  }
-});
-
-
-app.get('/api/donors/:id', authenticate, async (req, res) => {
-  try {
-    const donor = await Donor.findById(req.params.id);
-    if (!donor) return res.status(404).json({ success: false, error: 'Donor not found' });
-    res.json({ success: true, data: donor });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
+// GET /api/donors/:id — get single donor (user)
+app.get('/api/donors/:id', authenticate, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id, '-password').lean();
+    if (!user) return res.status(404).json({ success: false, error: 'Donor not found' });
+    res.json({ success: true, data: userToDonor(user) });
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
+});
 
-// Both roles — register donor
+// POST /api/donors — register a donor (creates a User record)
 app.post('/api/donors', authenticate, async (req, res) => {
   try {
-    castAvailability(req.body);
-    // Pre-check for duplicate email with a friendly message
+    const phone = (req.body.phone || '').trim();
     const email = (req.body.email || '').trim().toLowerCase();
-    if (email) {
-      const existing = await Donor.findOne({ email });
-      if (existing) {
-        return res.status(409).json({
-          success: false,
-          error: `A donor with email "${email}" is already registered. Please use a different email or check the existing record.`
-        });
-      }
+
+    if (phone) {
+      const clash = await User.findOne({ mobile: phone });
+      if (clash) return res.status(409).json({ success: false, error: `A donor with phone "${phone}" is already registered.` });
     }
-    const donor = new Donor(req.body);
-    await donor.save();
-    res.status(201).json({ success: true, data: donor, message: 'Donor registered successfully!' });
+    if (email) {
+      const clash = await User.findOne({ email });
+      if (clash) return res.status(409).json({ success: false, error: `A donor with email "${email}" is already registered.` });
+    }
+
+    const uname  = 'donor_' + (phone || Date.now().toString()).replace(/\D/g,'').slice(-8) + '_' + Date.now().toString().slice(-4);
+    const hashed = await bcrypt.hash((phone || uname) + '_reg_' + Date.now(), 10);
+    const bt     = (req.body.bloodType || '').trim();
+
+    const user = await User.create({
+      username:        uname,
+      password:        hashed,
+      mobile:          phone || null,
+      email:           email || null,
+      firstName:       (req.body.firstName || '').trim(),
+      lastName:        (req.body.lastName  || '').trim(),
+      address:         (req.body.address   || '').trim(),
+      city:            (req.body.city      || '').trim(),
+      country:         (req.body.country   || '').trim(),
+      bloodType:       bt,
+      isAvailable:     req.body.isAvailable !== false && req.body.isAvailable !== 'false',
+      lastDonationDate:req.body.lastDonationDate ? new Date(req.body.lastDonationDate) : null,
+      role:            'user',
+    });
+
+    res.status(201).json({ success: true, data: userToDonor(user), message: 'Donor registered successfully!' });
   } catch(err) {
-    if (err.code === 11000)
-      return res.status(409).json({ success: false, error: 'A donor with this email already exists.' });
+    if (err.code === 11000) return res.status(409).json({ success: false, error: 'A donor with this phone or email already exists.' });
     res.status(400).json({ success: false, error: friendlyError(err, 'Validation') });
   }
 });
 
-// Admin only — update donor
+// PUT /api/donors/:id — update donor (admin only)
 app.put('/api/donors/:id', authenticate, adminOnly, async (req, res) => {
   try {
-    req.body.updatedAt = new Date();
-    castAvailability(req.body);
-    const donor = await Donor.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
-    if (!donor) return res.status(404).json({ success: false, error: 'Donor not found' });
-    res.json({ success: true, data: donor, message: 'Donor updated successfully!' });
+    const updates = {};
+    if (req.body.firstName       !== undefined) updates.firstName        = req.body.firstName.trim();
+    if (req.body.lastName        !== undefined) updates.lastName         = req.body.lastName.trim();
+    if (req.body.phone           !== undefined) updates.mobile           = req.body.phone.trim();
+    if (req.body.email           !== undefined) updates.email            = req.body.email.trim().toLowerCase();
+    if (req.body.address         !== undefined) updates.address          = req.body.address.trim();
+    if (req.body.city            !== undefined) updates.city             = req.body.city.trim();
+    if (req.body.country         !== undefined) updates.country          = req.body.country.trim();
+    if (req.body.bloodType       !== undefined) updates.bloodType        = req.body.bloodType.trim();
+    if (req.body.isAvailable     !== undefined) updates.isAvailable      = req.body.isAvailable !== false && req.body.isAvailable !== 'false';
+    if (req.body.lastDonationDate !== undefined) updates.lastDonationDate = req.body.lastDonationDate ? new Date(req.body.lastDonationDate) : null;
+
+    const user = await User.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true }).lean();
+    if (!user) return res.status(404).json({ success: false, error: 'Donor not found' });
+    res.json({ success: true, data: userToDonor(user), message: 'Donor updated successfully!' });
   } catch(err) { res.status(400).json({ success: false, error: friendlyError(err, 'Validation') }); }
 });
 
-// Admin only — delete donor (also removes linked HS Employee user account)
+// DELETE /api/donors/:id — delete donor/user (admin only)
 app.delete('/api/donors/:id', authenticate, adminOnly, async (req, res) => {
   try {
-    const donor = await Donor.findById(req.params.id);
-    if (!donor) return res.status(404).json({ success: false, error: 'Donor not found.' });
-
-    // Find and delete the linked user account (matched by donorId or phone)
-    const linkedUser = await User.findOne({
-      $or: [
-        { donorId: donor._id },
-        { mobile: donor.phone }
-      ],
-      role: 'user' // never touch admin accounts
-    });
-
-    await Donor.findByIdAndDelete(req.params.id);
-
-    let userDeleted = false;
-    if (linkedUser) {
-      await User.findByIdAndDelete(linkedUser._id);
-      userDeleted = true;
-      console.log(`🗑 User account deleted along with donor: ${linkedUser.username} (${linkedUser.mobile})`);
-    }
-
-    const message = userDeleted
-      ? `Donor and linked HS Employee account (${linkedUser.username}) removed.`
-      : 'Donor removed from registry.';
-
-    res.json({ success: true, message });
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ success: false, error: 'Donor not found.' });
+    if (user.role === 'admin') return res.status(403).json({ success: false, error: 'Cannot delete an admin account from the donor screen.' });
+    await User.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: `Donor "${user.firstName} ${user.lastName}" removed.` });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
-
 
 // Both roles — stats
 app.get('/api/stats', authenticate, async (req, res) => {
   try {
-    const totalDonors     = await Donor.countDocuments();
-    const availableDonors = await Donor.countDocuments({ isAvailable: true });
-    const byBloodType     = await Donor.aggregate([
+    const totalDonors     = await User.countDocuments({ role: 'user' });
+    const availableDonors = await User.countDocuments({ role: 'user', isAvailable: { $ne: false } });
+    const byBloodType     = await User.aggregate([
+      { $match: { role: 'user', bloodType: { $ne: '' } } },
       { $group: { _id: '$bloodType', count: { $sum: 1 } } },
       { $sort:  { _id: 1 } }
     ]);
@@ -1440,13 +1394,16 @@ app.post('/api/requirements/:id/donate', authenticate, async (req, res) => {
     const req_ = await BloodRequirement.findById(req.params.id);
     if (!req_) return res.status(404).json({ success: false, error: 'Requirement not found.' });
     if (req_.status !== 'Open') return res.status(400).json({ success: false, error: 'This requirement is no longer open.' });
-    const userBT = req.user.bloodType || '';
+    // Fetch full user from DB — JWT only contains id/username/role, not bloodType/isAvailable/name
+    const fullUser = await User.findById(req.user.id || req.user._id).lean();
+    if (!fullUser) return res.status(401).json({ success: false, error: 'User not found. Please log in again.' });
+    const userBT = fullUser.bloodType || '';
     if (userBT && req_.bloodType !== userBT) return res.status(400).json({ success: false, error: 'Blood type mismatch. Requirement needs ' + req_.bloodType + ', your type is ' + userBT + '.' });
-    if (req.user.isAvailable === false) return res.status(400).json({ success: false, error: 'You are marked unavailable. Please update your profile.' });
+    if (fullUser.isAvailable === false) return res.status(400).json({ success: false, error: 'You are marked unavailable. Please update your profile.' });
     if (req_.donations.some(d => d.donorUsername === req.user.username)) return res.status(400).json({ success: false, error: 'You have already responded to this requirement.' });
     // NOTE: No 90-day restriction on pledging — the restriction is enforced on the frontend
     // based on lastDonationDate, which is only updated when a donation is marked Completed.
-    const donorName = ((req.user.firstName || '') + ' ' + (req.user.lastName || '')).trim() || req.user.username;
+    const donorName = ((fullUser.firstName || '') + ' ' + (fullUser.lastName || '')).trim() || req.user.username;
     req_.donations.push({ donorUsername: req.user.username, donorName, bloodType: userBT || req_.bloodType, donatedAt: new Date(), note: req.body.note || '', scheduledDate: req.body.scheduledDate || '', scheduledTime: req.body.scheduledTime || '', donationStatus: 'Pending' });
     // NOTE: remainingUnits and status are NOT changed here.
     // They are updated only when the requester marks the donation as Completed.
@@ -1767,30 +1724,7 @@ app.get('/api/users', authenticate, adminOnly, async (req, res) => {
   try {
     const users = await User.find({}, '-password').sort({ createdAt: -1 }).lean();
 
-    // For users missing firstName/lastName, pull from their linked Donor record
-    const enriched = await Promise.all(users.map(async (u) => {
-      if (!u.firstName && !u.lastName && u.donorId) {
-        const donor = await Donor.findById(u.donorId, 'firstName lastName').lean();
-        if (donor) {
-          u.firstName = donor.firstName || '';
-          u.lastName  = donor.lastName  || '';
-          // Backfill the User document so it's correct next time
-          await User.findByIdAndUpdate(u._id, { firstName: u.firstName, lastName: u.lastName });
-        }
-      }
-      // Also try matching by mobile if still missing
-      if (!u.firstName && !u.lastName && u.mobile) {
-        const donor = await Donor.findOne({ phone: u.mobile }, 'firstName lastName').lean();
-        if (donor) {
-          u.firstName = donor.firstName || '';
-          u.lastName  = donor.lastName  || '';
-          await User.findByIdAndUpdate(u._id, { firstName: u.firstName, lastName: u.lastName });
-        }
-      }
-      return u;
-    }));
-
-    res.json({ success: true, data: enriched });
+    res.json({ success: true, data: users });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
@@ -1823,33 +1757,17 @@ app.post('/api/users', authenticate, adminOnly, async (req, res) => {
 
     const hashedPwd = await bcrypt.hash(password, 10);
 
-    // Create Donor record
-    const emailClash = await Donor.findOne({ email: email.trim().toLowerCase() });
-    if (emailClash) return res.status(409).json({ success: false, error: 'This email is already registered to a donor.' });
-    const phoneClash = await Donor.findOne({ phone: mob });
-    let donorId = null;
-    if (!phoneClash) {
-      const donor = await Donor.create({
-        firstName: firstName.trim(), lastName: lastName.trim(),
-        phone: mob, email: email.trim().toLowerCase(),
-        address: '', city: 'N/A', country: 'N/A',
-        bloodType, isAvailable: true,
-      });
-      donorId = donor._id;
-      console.log(`✅ Donor created (admin-add): ${firstName} ${lastName}`);
-    }
-
     const user = await User.create({
       username: uname, password: hashedPwd,
       mobile: mob, bloodType, role: 'user',
       email: email.trim().toLowerCase(),
       firstName: firstName.trim(), lastName: lastName.trim(),
-      isAvailable: true, donorId,
+      isAvailable: true,
     });
 
     res.status(201).json({
       success: true,
-      message: `User "${firstName} ${lastName}" added${donorId ? ' and registered as a donor' : ''}. They can log in with OTP or username/password.`,
+      message: `User "${firstName} ${lastName}" added. They can log in with OTP or username/password.`,
       data: { _id: user._id, username: user.username, firstName: user.firstName || '', lastName: user.lastName || '', mobile: user.mobile, role: user.role, bloodType: user.bloodType || '', createdAt: user.createdAt }
     });
   } catch(err) {
@@ -1902,16 +1820,7 @@ app.put('/api/users/:id', authenticate, adminOnly, async (req, res) => {
     }
     await user.save();
 
-    // Sync linked donor record if exists
-    if (user.donorId) {
-      const donorUpdate = { updatedAt: new Date() };
-      if (bloodType !== undefined) donorUpdate.bloodType = user.bloodType;
-      if (mobile !== undefined && mobile !== '') donorUpdate.phone = user.mobile;
-      if (firstName) donorUpdate.firstName = firstName.trim();
-      if (lastName)  donorUpdate.lastName  = lastName.trim();
-      if (email !== undefined && email.trim()) donorUpdate.email = user.email;
-      await Donor.findByIdAndUpdate(user.donorId, donorUpdate).catch(() => {});
-    }
+    // No separate Donor record to sync — all fields stored directly on User.
 
     res.json({ success: true, message: `User "${user.username}" updated.`, data: { _id: user._id, username: user.username, firstName: user.firstName || '', lastName: user.lastName || '', mobile: user.mobile || '', role: user.role, bloodType: user.bloodType || '', createdAt: user.createdAt } });
   } catch(err) {
@@ -1932,27 +1841,8 @@ app.delete('/api/users/:id', authenticate, adminOnly, async (req, res) => {
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
 
-    // Delete linked donor record (matched by donorId or mobile/phone)
-    let donorDeleted = false;
-    const linkedDonor = await Donor.findOne({
-      $or: [
-        ...(user.donorId ? [{ _id: user.donorId }] : []),
-        ...(user.mobile  ? [{ phone: user.mobile }] : []),
-      ]
-    });
-    if (linkedDonor) {
-      await Donor.findByIdAndDelete(linkedDonor._id);
-      donorDeleted = true;
-      console.log(`🗑 Donor record deleted along with user: ${user.username} (donor: ${linkedDonor.firstName} ${linkedDonor.lastName})`);
-    }
-
     await User.findByIdAndDelete(user._id);
-
-    const message = donorDeleted
-      ? `User "${user.username}" and their donor record deleted.`
-      : `User "${user.username}" deleted.`;
-
-    res.json({ success: true, message });
+    res.json({ success: true, message: `User "${user.username}" deleted.` });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
@@ -1995,20 +1885,24 @@ app.get('/api/export', authenticate, adminOnly, async (req, res) => {
     const result = {};
 
     if (requested.includes('donors')) {
-      const donors = await Donor.find(donorFilter).sort('-createdAt').lean();
+      const userFilter = { role: 'user' };
+      if (donorFilter.bloodType)   userFilter.bloodType   = donorFilter.bloodType;
+      if (donorFilter.isAvailable !== undefined) userFilter.isAvailable = donorFilter.isAvailable;
+      if (donorFilter.createdAt)   userFilter.createdAt   = donorFilter.createdAt;
+      const donors = await User.find(userFilter, '-password').sort('-createdAt').lean();
       result.donors = donors.map(d => ({
-        'First Name':    d.firstName,
-        'Last Name':     d.lastName,
-        'Email':         d.email,
-        'Phone':         d.phone,
-        'Blood Type':    d.bloodType,
-        'Address':       d.address || '',
-        'City':          d.city || '',
-        'Country':       d.country || '',
-        'Available':     d.isAvailable ? 'Yes' : 'No',
+        'First Name':    d.firstName || '',
+        'Last Name':     d.lastName  || '',
+        'Email':         d.email     || '',
+        'Phone':         d.mobile    || '',
+        'Blood Type':    d.bloodType || '',
+        'Address':       d.address   || '',
+        'City':          d.city      || '',
+        'Country':       d.country   || '',
+        'Available':     d.isAvailable !== false ? 'Yes' : 'No',
         'Last Donation': d.lastDonationDate ? new Date(d.lastDonationDate).toISOString().split('T')[0] : '',
         'Registered On': new Date(d.createdAt).toISOString().split('T')[0],
-        'Last Updated':  new Date(d.updatedAt).toISOString().split('T')[0],
+        'Last Updated':  d.updatedAt ? new Date(d.updatedAt).toISOString().split('T')[0] : '',
       }));
     }
 
@@ -2081,21 +1975,6 @@ app.get('/api/auth/profile', authenticate, async (req, res) => {
     const user = await User.findById(req.user.id, '-password').lean();
     if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
 
-    // Backfill firstName/lastName from linked Donor if missing on User doc
-    if (!user.firstName && !user.lastName) {
-      const donor = user.donorId
-        ? await Donor.findById(user.donorId, 'firstName lastName').lean()
-        : user.mobile
-          ? await Donor.findOne({ phone: user.mobile }, 'firstName lastName').lean()
-          : null;
-      if (donor) {
-        user.firstName = donor.firstName || '';
-        user.lastName  = donor.lastName  || '';
-        // Persist so future calls don't need to look up the donor
-        await User.findByIdAndUpdate(user._id, { firstName: user.firstName, lastName: user.lastName });
-      }
-    }
-
     res.json({ success: true, user });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
@@ -2141,19 +2020,7 @@ app.put('/api/auth/profile', authenticate, async (req, res) => {
 
     await user.save();
 
-    // Sync linked donor record if exists
-    if (user.donorId) {
-      const donorUpdate = {};
-      if (firstName !== undefined && firstName.trim()) donorUpdate.firstName = user.firstName;
-      if (lastName !== undefined && lastName.trim())   donorUpdate.lastName  = user.lastName;
-      if (bloodType !== undefined)       donorUpdate.bloodType        = user.bloodType;
-      if (isAvailable !== undefined)     donorUpdate.isAvailable      = user.isAvailable;
-      if (address !== undefined)         donorUpdate.address          = user.address;
-      if (lastDonationDate !== undefined) donorUpdate.lastDonationDate = user.lastDonationDate;
-      if (email !== undefined)           donorUpdate.email            = user.email;
-      donorUpdate.updatedAt = new Date();
-      await Donor.findByIdAndUpdate(user.donorId, donorUpdate).catch(() => {});
-    }
+    // No separate Donor record to sync — all fields stored directly on User.
 
     // Return updated user (no password)
     const updated = {
@@ -2166,8 +2033,7 @@ app.put('/api/auth/profile', authenticate, async (req, res) => {
       isAvailable:      user.isAvailable,
       address:          user.address || '',
       lastDonationDate: user.lastDonationDate || null,
-      donorId:          user.donorId || null,
-    };
+          };
     res.json({ success: true, user: updated, message: 'Profile updated successfully!' });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
@@ -2182,24 +2048,10 @@ app.delete('/api/auth/account', authenticate, async (req, res) => {
     if (user.role === 'admin')
       return res.status(403).json({ success: false, error: 'Admin accounts cannot be self-deleted.' });
 
-    // Delete linked donor record (by donorId or mobile/phone match)
-    let donorDeleted = false;
-    if (user.donorId) {
-      await Donor.findByIdAndDelete(user.donorId);
-      donorDeleted = true;
-    } else if (user.mobile) {
-      const donor = await Donor.findOne({ phone: user.mobile });
-      if (donor) { await Donor.findByIdAndDelete(donor._id); donorDeleted = true; }
-    }
-
-    // Delete all notifications for this user
     await Notification.deleteMany({ username: user.username });
-
-    // Delete the user account
     await User.findByIdAndDelete(user._id);
-
-    console.log(`🗑 Self-deleted: ${user.username} (mobile: ${user.mobile || 'none'}) — donor removed: ${donorDeleted}`);
-    res.json({ success: true, message: 'Your account and donor record have been permanently deleted.' });
+    console.log(`🗑 Self-deleted: ${user.username} (mobile: ${user.mobile || 'none'})`);
+    res.json({ success: true, message: 'Your account has been permanently deleted.' });
   } catch(err) {
     res.status(500).json({ success: false, error: friendlyError(err, 'AccountDelete') });
   }
@@ -2212,13 +2064,8 @@ app.delete('/api/auth/account', authenticate, async (req, res) => {
 // so newly registered users don't see pre-existing notifications.
 app.get('/api/notifications', authenticate, async (req, res) => {
   try {
-    // Fetch the user's registration date to use as a lower bound
-    const currentUser = await User.findById(req.user.id, 'createdAt').lean();
-    const userCreatedAt = currentUser ? currentUser.createdAt : new Date(0);
-
     const notifications = await Notification.find({
-      username:  req.user.username,
-      createdAt: { $gte: userCreatedAt },
+      username: req.user.username,
     })
       .sort('-createdAt')
       .limit(50)
@@ -2419,9 +2266,6 @@ app.post('/api/requirements/:id/donations/:donorUsername/status', authenticate, 
       const donorUser = await User.findOne({ username: donorUsername });
       if (donorUser) {
         await User.findByIdAndUpdate(donorUser._id, { lastDonationDate: completionDate });
-        if (donorUser.donorId) {
-          await Donor.findByIdAndUpdate(donorUser.donorId, { lastDonationDate: completionDate, updatedAt: completionDate }).catch(() => {});
-        }
         console.log(`✅ lastDonationDate updated for ${donorUsername} on completion`);
       }
 
