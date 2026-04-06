@@ -30,40 +30,21 @@ if (MAIL_USER && MAIL_PASS) {
   console.log('ℹ️  MAIL_USER / MAIL_PASS not set — support email disabled');
 }
 
-// Fast2SMS (optional — only active if FAST2SMS_API_KEY env var is set)
-const axios = require('axios');
-const FAST2SMS_API_KEY    = process.env.FAST2SMS_API_KEY    || '';
-const FAST2SMS_ROUTE      = process.env.FAST2SMS_ROUTE      || 'otp';
-const FAST2SMS_SENDER_ID  = process.env.FAST2SMS_SENDER_ID  || '';
-const FAST2SMS_TEMPLATE_ID = process.env.FAST2SMS_TEMPLATE_ID || '';
-const FAST2SMS_MSG_TEMPLATE_ID = process.env.FAST2SMS_MSG_TEMPLATE_ID || ''; // for non-OTP alerts
-const smsEnabled = !!FAST2SMS_API_KEY;
-if (smsEnabled) {
-  console.log('✅ Fast2SMS enabled');
-} else {
-  console.log('ℹ️  FAST2SMS_API_KEY not set — SMS notifications disabled');
-}
-
-// Helper: send SMS via Fast2SMS
-async function sendFast2SMS(mobile, message, { isOtp = false, otp = '' } = {}) {
-  const cleanMobile = mobile.replace(/^(\+?91)/, '').replace(/[\s\-()]/g, '').trim();
-
-  let payload;
-  if (isOtp && FAST2SMS_ROUTE === 'otp') {
-    payload = { route: 'otp', variables_values: otp, numbers: cleanMobile };
-  } else if (FAST2SMS_ROUTE === 'dlt' && FAST2SMS_SENDER_ID) {
-    const templateId = isOtp ? FAST2SMS_TEMPLATE_ID : (FAST2SMS_MSG_TEMPLATE_ID || FAST2SMS_TEMPLATE_ID);
-    payload = { route: 'dlt', sender_id: FAST2SMS_SENDER_ID, message: templateId, variables_values: isOtp ? otp : message, numbers: cleanMobile };
-  } else {
-    // Quick transactional route fallback
-    payload = { route: 'q', message, numbers: cleanMobile };
+// Twilio SMS (optional — only active if TWILIO_* env vars are set)
+let twilioClient = null;
+const TWILIO_SID   = process.env.TWILIO_ACCOUNT_SID  || '';
+const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN    || '';
+const TWILIO_FROM  = process.env.TWILIO_PHONE_NUMBER  || '';
+if (TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM) {
+  try {
+    const twilio = require('twilio');
+    twilioClient = twilio(TWILIO_SID, TWILIO_TOKEN);
+    console.log('✅ Twilio SMS enabled');
+  } catch(e) {
+    console.warn('⚠️  Twilio package not found — run: npm install twilio');
   }
-
-  const resp = await axios.post('https://www.fast2sms.com/dev/bulkV2', payload, {
-    headers: { authorization: FAST2SMS_API_KEY, 'Content-Type': 'application/json' },
-  });
-  if (!resp.data.return) throw new Error(`Fast2SMS failed: ${JSON.stringify(resp.data)}`);
-  return resp.data;
+} else {
+  console.log('ℹ️  Twilio not configured — SMS notifications disabled');
 }
 
 // ── Firebase Admin SDK (FCM push notifications) ──────────────
@@ -247,7 +228,7 @@ async function createInAppNotifications(requirement) {
 // Helper: send SMS to matching available donors for a blood requirement
 // Helper: send SMS to matching available donors for a blood requirement
 async function notifyMatchingDonors(requirement) {
-  if (!smsEnabled) return { sent: 0, failed: 0, skipped: 'Fast2SMS not configured' };
+  if (!twilioClient) return { sent: 0, failed: 0, skipped: 'Twilio not configured' };
 
   const { bloodType, patientName, hospital, location, unitsRequired, urgency, createdBy } = requirement;
 
@@ -286,7 +267,7 @@ async function notifyMatchingDonors(requirement) {
     try {
       let phone = target.phone.replace(/[\s\-()]/g, '');
       if (!phone.startsWith('+')) phone = '+91' + phone;
-      await sendFast2SMS(phone, message);
+      await twilioClient.messages.create({ body: message, from: TWILIO_FROM, to: phone });
       sent++;
     } catch(err) {
       failed++;
@@ -414,16 +395,22 @@ function generateOTP() {
 }
 
 async function sendOTP(mobile, otp) {
-  if (smsEnabled) {
+  if (twilioClient && TWILIO_FROM) {
+    let phone = mobile.replace(/[\s\-()]/g, '');
+    if (!phone.startsWith('+')) phone = '+91' + phone;
     try {
-      await sendFast2SMS(mobile, `Your HSBlood OTP is: ${otp}. Valid for 10 minutes. Do not share this with anyone.`, { isOtp: true, otp });
-      console.log(`📱 OTP sent to ${mobile}`);
-    } catch (smsErr) {
-      console.error(`[Fast2SMS] Failed to send OTP to ${mobile}:`, smsErr.message);
-      throw new Error(`Could not send OTP via SMS. ${smsErr.message}`);
+      await twilioClient.messages.create({
+        body: `Your HSBlood OTP is: ${otp}. Valid for 10 minutes. Do not share this with anyone.`,
+        from: TWILIO_FROM,
+        to:   phone,
+      });
+      console.log(`📱 OTP sent to ${phone}`);
+    } catch (twilioErr) {
+      console.error(`[Twilio] Failed to send OTP to ${phone}:`, twilioErr.message);
+      throw new Error(`Could not send OTP via SMS. Twilio error: ${twilioErr.message}`);
     }
   } else {
-    // Dev mode — print OTP to console so testing is possible without Fast2SMS
+    // Dev mode — print OTP to console so testing is possible without Twilio
     console.log(`🔐 [DEV MODE] OTP for ${mobile}: ${otp}`);
   }
 }
@@ -1429,22 +1416,29 @@ app.post('/api/requirements/:id/donate', authenticate, async (req, res) => {
     // ── SMS to requirement creator (contactPhone) ─────────────
     // Notify the person who created the requirement that a donor has stepped up.
     // Runs in background — does not block the response.
-    console.log(`[Donate] contactPhone="${req_.contactPhone}", smsEnabled=${smsEnabled}`);
-    if (!smsEnabled) {
-      console.warn('[Donate] SMS skipped — Fast2SMS not configured. Set FAST2SMS_API_KEY env var.');
+    console.log(`[Donate] contactPhone="${req_.contactPhone}", twilioReady=${!!twilioClient}`);
+    if (!twilioClient) {
+      console.warn('[Donate] SMS skipped — Twilio not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER env vars.');
     } else if (!req_.contactPhone || req_.contactPhone.trim() === '') {
       console.warn('[Donate] SMS skipped — requirement has no contactPhone stored.');
     } else {
       try {
+        let creatorPhone = req_.contactPhone.replace(/[\s\-()]/g, '');
+        if (!creatorPhone.startsWith('+')) creatorPhone = '+91' + creatorPhone;
+
         const isFulfilled = req_.status === 'Fulfilled';
         const smsBody = isFulfilled
-          ? `HSBlood: Great news! ${donorName} has agreed to donate ${req_.bloodType} blood for ${req_.patientName} at ${req_.hospital}. Your requirement is now FULLY FULFILLED. Thank you!`
-          : `HSBlood: ${donorName} has agreed to donate ${req_.bloodType} blood for ${req_.patientName} at ${req_.hospital}. ${req_.remainingUnits} unit(s) still needed.`;
+          ? `✅ HSBlood: Great news! ${donorName} has agreed to donate ${req_.bloodType} blood for ${req_.patientName} at ${req_.hospital}. Your requirement is now FULLY FULFILLED. Thank you!`
+          : `🩸 HSBlood: ${donorName} has agreed to donate ${req_.bloodType} blood for ${req_.patientName} at ${req_.hospital}. ${req_.remainingUnits} unit(s) still needed.`;
 
-        sendFast2SMS(req_.contactPhone, smsBody).then(() => {
-          console.log(`📱 SMS sent to creator (${req_.contactPhone}) for donation by ${req.user.username}`);
+        twilioClient.messages.create({
+          body: smsBody,
+          from: TWILIO_FROM,
+          to:   creatorPhone,
+        }).then(() => {
+          console.log(`📱 SMS sent to creator (${creatorPhone}) for donation by ${req.user.username}`);
         }).catch(smsErr => {
-          console.error(`Creator SMS failed (to ${req_.contactPhone}):`, smsErr.message);
+          console.error(`Creator SMS failed (to ${creatorPhone}):`, smsErr.message);
         });
       } catch (smsErr) {
         console.error('Creator SMS setup error:', smsErr.message);
