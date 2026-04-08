@@ -114,7 +114,7 @@ async function bulkConfirmUpload() {
     const res = await apiFetch('/donors/bulk', {
       method: 'POST',
       body: JSON.stringify({ donors: bulkParsedDonors })
-    });
+    }, 0, 60000);
 
     document.getElementById('bulk-step-2').style.display = 'none';
     document.getElementById('bulk-step-3').style.display = '';
@@ -277,7 +277,7 @@ async function biConfirmUpload() {
     res = await apiFetch('/info/bulk', {
       method: 'POST',
       body: JSON.stringify({ entries: bulkInfoParsed })
-    });
+    }, 0, 60000);
   } catch(err) {
     showToast('Upload failed. Please check your connection.', 'error');
     btn.disabled = false; btn.textContent = '🚀 Upload Entries';
@@ -446,7 +446,7 @@ async function brConfirmUpload() {
     res = await apiFetch('/requirements/bulk', {
       method: 'POST',
       body: JSON.stringify({ requirements: bulkReqParsed })
-    });
+    }, 0, 60000);
   } catch(err) {
     showToast('Upload failed. Please check your connection.', 'error');
     btn.disabled = false; btn.textContent = '🚀 Upload Requirements';

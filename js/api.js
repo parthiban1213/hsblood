@@ -50,11 +50,11 @@ function barDone(){
   }, 200);
 }
 
-async function apiFetch(url, opts={}, retries=2){
+async function apiFetch(url, opts={}, retries=2, timeoutMs=10000){
   barStart();
   for(let attempt=0; attempt<=retries; attempt++){
     const controller = new AbortController();
-    const timeoutId  = setTimeout(()=>controller.abort(), 10000); // 10 s timeout
+    const timeoutId  = setTimeout(()=>controller.abort(), timeoutMs);
     try{
       const res  = await fetch(API+url, {headers:authHeaders(), signal:controller.signal, ...opts});
       clearTimeout(timeoutId);
