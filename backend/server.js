@@ -225,60 +225,8 @@ async function createInAppNotifications(requirement) {
   }
 }
 
-// Helper: send SMS to matching available donors for a blood requirement
-// Helper: send SMS to matching available donors for a blood requirement
-async function notifyMatchingDonors(requirement) {
-  if (!twilioClient) return { sent: 0, failed: 0, skipped: 'Twilio not configured' };
-
-  const { bloodType, patientName, hospital, location, unitsRequired, urgency, createdBy } = requirement;
-
-  // 1. Registered app users: matching blood type, have a mobile, available, not the requester.
-  //    Use $ne:false so users without isAvailable explicitly set are still included.
-  const matchingUsers = await User.find({
-    role:        'user',
-    bloodType,
-    isAvailable: { $ne: false },
-    mobile:      { $exists: true, $ne: '' },
-    username:    { $ne: createdBy },
-  }, 'mobile firstName lastName username').lean();
-
-  const targets = matchingUsers.map(u => ({ phone: u.mobile, name: u.firstName || u.username }));
-
-  console.log(`[SMS] bloodType=${bloodType}, createdBy=${createdBy}, targets=${targets.length}`);
-  if (!targets.length) return { sent: 0, failed: 0, skipped: 'No matching recipients' };
-
-  const urgencyText  = urgency === 'Critical' ? 'URGENT'
-                     : urgency === 'High'     ? 'HIGH PRIORITY'
-                     : 'Blood Needed';
-  const locationText = location ? ` in ${location}` : '';
-  const message = [
-    `${urgencyText} - HSBlood Alert`,
-    `Blood Type: ${bloodType} (${unitsRequired} unit${unitsRequired !== 1 ? 's' : ''} needed)`,
-    `Patient: ${patientName}`,
-    `Hospital: ${hospital}${locationText}`,
-    `Open the HSBlood app to respond.`,
-    `Reply STOP to opt out.`,
-  ].join('\n');
-
-  let sent = 0, failed = 0;
-  const errors = [];
-
-  for (const target of targets) {
-    try {
-      let phone = target.phone.replace(/[\s\-()]/g, '');
-      if (!phone.startsWith('+')) phone = '+91' + phone;
-      await twilioClient.messages.create({ body: message, from: TWILIO_FROM, to: phone });
-      sent++;
-    } catch(err) {
-      failed++;
-      errors.push({ name: target.name, phone: target.phone, error: err.message });
-    }
-  }
-
-  console.log(`SMS: ${sent} sent, ${failed} failed for ${bloodType} requirement`);
-  if (errors.length) console.warn('SMS errors:', errors);
-  return { sent, failed, total: targets.length };
-}
+// notifyMatchingDonors removed — SMS alerts to donors are disabled.
+// Donors are notified via FCM push notifications and in-app notifications only.
 
 const app = express();
 
@@ -1331,13 +1279,6 @@ app.post('/api/requirements', authenticate, async (req, res) => {
     // Runs in background — does not block the response.
     sendFcmPushForRequirement(req_).catch(err => console.error('FCM push error:', err));
 
-    // Send SMS to matching available donors — runs in background, doesn't block response
-    notifyMatchingDonors(req_).then(smsResult => {
-      if (smsResult.sent > 0) {
-        console.log(`📱 Notified ${smsResult.sent} donor(s) for ${req_.bloodType} requirement`);
-      }
-    }).catch(err => console.error('SMS notification error:', err));
-
     res.status(201).json({
       success: true,
       data: req_,
@@ -1412,38 +1353,6 @@ app.post('/api/requirements/:id/donate', authenticate, async (req, res) => {
 
     // NOTE: lastDonationDate is NOT updated here.
     // It is updated only when the requester marks the donation as Completed.
-
-    // ── SMS to requirement creator (contactPhone) ─────────────
-    // Notify the person who created the requirement that a donor has stepped up.
-    // Runs in background — does not block the response.
-    console.log(`[Donate] contactPhone="${req_.contactPhone}", twilioReady=${!!twilioClient}`);
-    if (!twilioClient) {
-      console.warn('[Donate] SMS skipped — Twilio not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER env vars.');
-    } else if (!req_.contactPhone || req_.contactPhone.trim() === '') {
-      console.warn('[Donate] SMS skipped — requirement has no contactPhone stored.');
-    } else {
-      try {
-        let creatorPhone = req_.contactPhone.replace(/[\s\-()]/g, '');
-        if (!creatorPhone.startsWith('+')) creatorPhone = '+91' + creatorPhone;
-
-        const isFulfilled = req_.status === 'Fulfilled';
-        const smsBody = isFulfilled
-          ? `✅ HSBlood: Great news! ${donorName} has agreed to donate ${req_.bloodType} blood for ${req_.patientName} at ${req_.hospital}. Your requirement is now FULLY FULFILLED. Thank you!`
-          : `🩸 HSBlood: ${donorName} has agreed to donate ${req_.bloodType} blood for ${req_.patientName} at ${req_.hospital}. ${req_.remainingUnits} unit(s) still needed.`;
-
-        twilioClient.messages.create({
-          body: smsBody,
-          from: TWILIO_FROM,
-          to:   creatorPhone,
-        }).then(() => {
-          console.log(`📱 SMS sent to creator (${creatorPhone}) for donation by ${req.user.username}`);
-        }).catch(smsErr => {
-          console.error(`Creator SMS failed (to ${creatorPhone}):`, smsErr.message);
-        });
-      } catch (smsErr) {
-        console.error('Creator SMS setup error:', smsErr.message);
-      }
-    }
 
     res.json({ success: true, message: req_.status === 'Fulfilled' ? 'This requirement is now fully fulfilled.' : 'Donation recorded! ' + req_.remainingUnits + ' unit(s) still needed.', data: { remainingUnits: req_.remainingUnits, status: req_.status } });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
