@@ -184,7 +184,223 @@ function friendlyError(err, context = '') {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Helper: create in-app notifications — only for available users with matching blood type
+// ── GEOCODING HELPER ────────────────────────────────────────────────────────
+// Auto-resolve hospital + location/city into lat/lng coordinates.
+// Uses OpenStreetMap Nominatim (free, no API key required).
+// Rate-limited to 1 req/sec per Nominatim policy.
+// Falls back to a built-in Indian city lookup if Nominatim fails.
+
+const INDIAN_CITY_COORDS = {
+  'coimbatore':        { lat: 11.0168, lng: 76.9558 },
+  'chennai':           { lat: 13.0827, lng: 80.2707 },
+  'bangalore':         { lat: 12.9716, lng: 77.5946 },
+  'bengaluru':         { lat: 12.9716, lng: 77.5946 },
+  'mumbai':            { lat: 19.0760, lng: 72.8777 },
+  'delhi':             { lat: 28.6139, lng: 77.2090 },
+  'new delhi':         { lat: 28.6139, lng: 77.2090 },
+  'hyderabad':         { lat: 17.3850, lng: 78.4867 },
+  'pune':              { lat: 18.5204, lng: 73.8567 },
+  'kolkata':           { lat: 22.5726, lng: 88.3639 },
+  'ahmedabad':         { lat: 23.0225, lng: 72.5714 },
+  'jaipur':            { lat: 26.9124, lng: 75.7873 },
+  'lucknow':           { lat: 26.8467, lng: 80.9462 },
+  'kochi':             { lat: 9.9312,  lng: 76.2673 },
+  'thiruvananthapuram':{ lat: 8.5241,  lng: 76.9366 },
+  'madurai':           { lat: 9.9252,  lng: 78.1198 },
+  'trichy':            { lat: 10.7905, lng: 78.7047 },
+  'tiruchirappalli':   { lat: 10.7905, lng: 78.7047 },
+  'salem':             { lat: 11.6643, lng: 78.1460 },
+  'erode':             { lat: 11.3410, lng: 77.7172 },
+  'tiruppur':          { lat: 11.1085, lng: 77.3411 },
+  'pollachi':          { lat: 10.6609, lng: 77.0081 },
+  'mettupalayam':      { lat: 11.2990, lng: 76.9394 },
+  'ooty':              { lat: 11.4102, lng: 76.6950 },
+  'dindigul':          { lat: 10.3673, lng: 77.9803 },
+  'thanjavur':         { lat: 10.7870, lng: 79.1378 },
+  'vellore':           { lat: 12.9165, lng: 79.1325 },
+  'tirunelveli':       { lat: 8.7139,  lng: 77.7567 },
+  'nagercoil':         { lat: 8.1833,  lng: 77.4119 },
+  'karur':             { lat: 10.9601, lng: 78.0766 },
+  'namakkal':          { lat: 11.2189, lng: 78.1674 },
+  'sivakasi':          { lat: 9.4533,  lng: 77.7981 },
+  'virudhunagar':      { lat: 9.5850,  lng: 77.9525 },
+  'ramanathapuram':    { lat: 9.3639,  lng: 78.8395 },
+  'theni':             { lat: 10.0104, lng: 77.4768 },
+  'mysore':            { lat: 12.2958, lng: 76.6394 },
+  'mysuru':            { lat: 12.2958, lng: 76.6394 },
+  'mangalore':         { lat: 12.9141, lng: 74.8560 },
+  'hubli':             { lat: 15.3647, lng: 75.1240 },
+  'belgaum':           { lat: 15.8497, lng: 74.4977 },
+  'vizag':             { lat: 17.6868, lng: 83.2185 },
+  'visakhapatnam':     { lat: 17.6868, lng: 83.2185 },
+  'vijayawada':        { lat: 16.5062, lng: 80.6480 },
+  'tirupati':          { lat: 13.6288, lng: 79.4192 },
+  'indore':            { lat: 22.7196, lng: 75.8577 },
+  'bhopal':            { lat: 23.2599, lng: 77.4126 },
+  'nagpur':            { lat: 21.1458, lng: 79.0882 },
+  'surat':             { lat: 21.1702, lng: 72.8311 },
+  'vadodara':          { lat: 22.3072, lng: 73.1812 },
+  'rajkot':            { lat: 22.3039, lng: 70.8022 },
+  'chandigarh':        { lat: 30.7333, lng: 76.7794 },
+  'patna':             { lat: 25.6093, lng: 85.1376 },
+  'ranchi':            { lat: 23.3441, lng: 85.3096 },
+  'guwahati':          { lat: 26.1445, lng: 91.7362 },
+  'bhubaneswar':       { lat: 20.2961, lng: 85.8245 },
+};
+
+/**
+ * Geocode a hospital + location string into { latitude, longitude, city }.
+ * Strategy:
+ *   1. Try Nominatim with "hospital, location, India"
+ *   2. Try Nominatim with just "location, India"  (in case hospital name is too specific)
+ *   3. Fallback to built-in city coordinate lookup
+ *
+ * Returns { latitude, longitude, city } or null if all methods fail.
+ * This function is intentionally non-blocking and failure-tolerant.
+ */
+async function geocodeLocation(hospital, location) {
+  const loc = (location || '').trim();
+  const hosp = (hospital || '').trim();
+  if (!hosp && !loc) return null;
+
+  // Try Nominatim geocoding
+  const queries = [];
+  if (hosp && loc) queries.push(`${hosp}, ${loc}, India`);
+  if (loc) queries.push(`${loc}, India`);
+  if (hosp) queries.push(`${hosp}, India`);
+
+  for (const q of queries) {
+    try {
+      const result = await nominatimGeocode(q);
+      if (result) {
+        // Extract city from the location/address fields
+        const city = extractCityFromLocation(loc) || '';
+        return { latitude: result.lat, longitude: result.lng, city };
+      }
+    } catch (err) {
+      console.error(`[Geocode] Nominatim failed for "${q}":`, err.message);
+    }
+  }
+
+  // Fallback: try matching location text against known city names
+  const cityMatch = findCityInText(loc || hosp);
+  if (cityMatch) {
+    console.log(`[Geocode] Fallback city match: "${cityMatch.name}" for "${loc || hosp}"`);
+    return { latitude: cityMatch.lat, longitude: cityMatch.lng, city: cityMatch.name };
+  }
+
+  console.warn(`[Geocode] Could not geocode: hospital="${hosp}", location="${loc}"`);
+  return null;
+}
+
+/**
+ * Query OpenStreetMap Nominatim for coordinates.
+ * Returns { lat, lng } or null.
+ */
+async function nominatimGeocode(query) {
+  try {
+    // Use global fetch (Node 18+) or fallback to node-fetch
+    const fetchFn = typeof fetch !== 'undefined' ? fetch : (() => {
+      try { return require('node-fetch'); } catch(_) { return null; }
+    })();
+    if (!fetchFn) {
+      console.warn('[Geocode] No fetch available. Install node-fetch for Node < 18.');
+      return null;
+    }
+
+    const url = `https://nominatim.openstreetmap.org/search?` +
+      `q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=in`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    const response = await fetchFn(url, {
+      headers: { 'User-Agent': 'BloodConnect-HSBlood/1.0 (blood-donation-platform)' },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (!data || data.length === 0) return null;
+
+    const lat = parseFloat(data[0].lat);
+    const lng = parseFloat(data[0].lon);
+    if (isNaN(lat) || isNaN(lng)) return null;
+
+    console.log(`[Geocode] Nominatim resolved "${query}" → ${lat}, ${lng}`);
+    return { lat, lng };
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      console.warn(`[Geocode] Nominatim timeout for "${query}"`);
+    }
+    return null;
+  }
+}
+
+/**
+ * Search for a known Indian city name inside a text string.
+ * Returns { name, lat, lng } or null.
+ */
+function findCityInText(text) {
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  // Sort city names by length desc so "new delhi" matches before "delhi"
+  const sorted = Object.keys(INDIAN_CITY_COORDS).sort((a, b) => b.length - a.length);
+  for (const city of sorted) {
+    if (lower.includes(city)) {
+      const coords = INDIAN_CITY_COORDS[city];
+      // Return properly capitalized city name
+      const name = city.charAt(0).toUpperCase() + city.slice(1);
+      return { name, lat: coords.lat, lng: coords.lng };
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract the most likely city name from a location string.
+ * E.g., "RS Puram, Coimbatore" → "Coimbatore"
+ *        "Coimbatore" → "Coimbatore"
+ */
+function extractCityFromLocation(location) {
+  if (!location) return '';
+  const lower = location.toLowerCase().trim();
+  const sorted = Object.keys(INDIAN_CITY_COORDS).sort((a, b) => b.length - a.length);
+  for (const city of sorted) {
+    if (lower.includes(city)) {
+      return city.charAt(0).toUpperCase() + city.slice(1);
+    }
+  }
+  // If no known city found, use the last comma-separated segment
+  // (commonly the city in addresses like "Street, Area, City")
+  const parts = location.split(',').map(p => p.trim()).filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : '';
+}
+
+/**
+ * Geocode and update a saved BloodRequirement document in the background.
+ * Non-blocking — failures are logged but never surface to the user.
+ */
+async function geocodeAndUpdateRequirement(requirementId, hospital, location) {
+  try {
+    const geo = await geocodeLocation(hospital, location);
+    if (!geo) return;
+
+    const update = {};
+    if (geo.latitude != null)  update.latitude  = geo.latitude;
+    if (geo.longitude != null) update.longitude = geo.longitude;
+    if (geo.city)              update.city      = geo.city;
+
+    if (Object.keys(update).length > 0) {
+      await BloodRequirement.findByIdAndUpdate(requirementId, update);
+      console.log(`[Geocode] Updated requirement ${requirementId}: ${geo.latitude}, ${geo.longitude} (${geo.city})`);
+    }
+  } catch (err) {
+    console.error(`[Geocode] Background update failed for ${requirementId}:`, err.message);
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 async function createInAppNotifications(requirement) {
   try {
     const { bloodType, patientName, hospital, location, unitsRequired, urgency, _id, createdBy } = requirement;
@@ -393,6 +609,9 @@ const bloodRequirementSchema = new mongoose.Schema({
   patientName:    { type: String, required: true, trim: true },
   hospital:       { type: String, required: true, trim: true },
   location:       { type: String, default: '', trim: true },
+  city:           { type: String, default: '', trim: true },
+  latitude:       { type: Number, default: null },
+  longitude:      { type: Number, default: null },
   contactPerson:  { type: String, required: true, trim: true },
   contactPhone:   { type: String, required: true },
   bloodType:      { type: String, required: true, enum: ['A+','A-','B+','B-','AB+','AB-','O+','O-'] },
@@ -697,7 +916,7 @@ app.post('/api/auth/otp/register', async (req, res) => {
 app.post('/api/auth/register-direct', async (req, res) => {
   try {
     const { mobile, otp, username, firstName, lastName, bloodType,
-            address, email, lastDonationDate } = req.body;
+            address, city, email, lastDonationDate } = req.body;
 
     // Validate mobile
     if (!mobile || !/^[6-9]\d{9}$/.test(mobile.trim()))
@@ -744,6 +963,7 @@ app.post('/api/auth/register-direct', async (req, res) => {
       bloodType,
       isAvailable: true,
       address: address ? address.trim() : '',
+      city: city ? city.trim() : '',
       lastDonationDate: lastDonationDate ? new Date(lastDonationDate) : null,
       role: 'user',
     });
@@ -757,6 +977,7 @@ app.post('/api/auth/register-direct', async (req, res) => {
         username: newUser.username, role: newUser.role, email: newUser.email || '',
         bloodType: newUser.bloodType || '', mobile: newUser.mobile || '',
         isAvailable: newUser.isAvailable, address: newUser.address || '',
+        city: newUser.city || '',
         lastDonationDate: newUser.lastDonationDate || null,
         firstName, lastName,
       },
@@ -1232,8 +1453,67 @@ app.get('/api/requirements', authenticate, async (req, res) => {
     if (req.query.bloodType) filter.bloodType = req.query.bloodType;
     if (req.query.status)    filter.status    = req.query.status;
     if (req.query.urgency)   filter.urgency   = req.query.urgency;
-    const reqs = await BloodRequirement.find(filter).sort('-createdAt');
-    res.json({ success: true, data: reqs, count: reqs.length });
+
+    // City-based filtering (fallback when no GPS coords)
+    if (req.query.city) {
+      filter.city = { $regex: new RegExp(req.query.city.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'i') };
+    }
+
+    // Pagination
+    const page  = Math.max(parseInt(req.query.page)  || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+    const skip  = (page - 1) * limit;
+
+    const total = await BloodRequirement.countDocuments(filter);
+    let reqs = await BloodRequirement.find(filter).sort('-createdAt').skip(skip).limit(limit);
+
+    // Location-based distance calculation (if user provides lat/lng)
+    const userLat = parseFloat(req.query.latitude);
+    const userLng = parseFloat(req.query.longitude);
+    const maxDistKm = parseFloat(req.query.maxDistance) || null; // optional max radius in km
+
+    let results = reqs.map(r => r.toObject());
+
+    if (!isNaN(userLat) && !isNaN(userLng)) {
+      // Haversine distance calculation
+      const toRad = deg => deg * Math.PI / 180;
+      const haversine = (lat1, lon1, lat2, lon2) => {
+        const R = 6371; // Earth radius in km
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      };
+
+      results = results.map(r => {
+        if (r.latitude != null && r.longitude != null) {
+          r.distanceKm = Math.round(haversine(userLat, userLng, r.latitude, r.longitude) * 10) / 10;
+        } else {
+          r.distanceKm = null;
+        }
+        return r;
+      });
+
+      // Filter by max distance if specified
+      if (maxDistKm) {
+        results = results.filter(r => r.distanceKm === null || r.distanceKm <= maxDistKm);
+      }
+
+      // Sort by distance (nearest first), nulls last
+      results.sort((a, b) => {
+        if (a.distanceKm == null && b.distanceKm == null) return 0;
+        if (a.distanceKm == null) return 1;
+        if (b.distanceKm == null) return -1;
+        return a.distanceKm - b.distanceKm;
+      });
+    }
+
+    res.json({
+      success: true,
+      data: results,
+      count: results.length,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+    });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
@@ -1271,6 +1551,12 @@ app.post('/api/requirements', authenticate, async (req, res) => {
     const req_ = new BloodRequirement(req.body);
     await req_.save();
 
+    // Auto-geocode hospital + location → lat/lng in background (non-blocking).
+    // The requirement is saved immediately; coordinates are updated asynchronously.
+    const location = (req.body.location || '').trim();
+    geocodeAndUpdateRequirement(req_._id, hospital, location)
+      .catch(err => console.error('[Geocode] Background geocode error:', err.message));
+
     // Create in-app notifications — awaited so they are committed to DB before
     // the response is sent, ensuring the frontend sees them on the next fetch.
     await createInAppNotifications(req_).catch(err => console.error('In-app notification error:', err));
@@ -1300,7 +1586,24 @@ app.put('/api/requirements/:id', authenticate, async (req, res) => {
       return res.status(403).json({ success: false, error: 'You can only edit requirements you created.' });
     }
     req.body.updatedAt = new Date();
+    // If hospital or location changed, clear old coords so they get re-geocoded
+    const hospitalChanged  = req.body.hospital  && req.body.hospital  !== req_.hospital;
+    const locationChanged  = req.body.location !== undefined && req.body.location !== req_.location;
+    if (hospitalChanged || locationChanged) {
+      // Clear stale coordinates — they'll be updated by background geocoding
+      if (!req.body.latitude)  req.body.latitude  = null;
+      if (!req.body.longitude) req.body.longitude = null;
+    }
     const updated = await BloodRequirement.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+
+    // Re-geocode in background if hospital or location changed
+    if (hospitalChanged || locationChanged) {
+      const newHospital = (req.body.hospital || updated.hospital || '').trim();
+      const newLocation = (req.body.location !== undefined ? req.body.location : updated.location || '').trim();
+      geocodeAndUpdateRequirement(updated._id, newHospital, newLocation)
+        .catch(err => console.error('[Geocode] Background re-geocode error:', err.message));
+    }
+
     res.json({ success: true, data: updated, message: 'Requirement updated successfully!' });
   } catch(err) { res.status(400).json({ success: false, error: friendlyError(err, 'Validation') }); }
 });
@@ -1311,6 +1614,52 @@ app.delete('/api/requirements/:id', authenticate, adminOnly, async (req, res) =>
     await BloodRequirement.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Requirement deleted.' });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
+});
+
+// ── GEOCODE BACKFILL — admin only ─────────────────────────────
+// POST /api/requirements/geocode-backfill
+// Geocodes all existing requirements that have no coordinates.
+// Respects Nominatim's 1-request-per-second rate limit.
+// Safe to call multiple times — only processes requirements with latitude=null.
+app.post('/api/requirements/geocode-backfill', authenticate, adminOnly, async (req, res) => {
+  try {
+    const reqs = await BloodRequirement.find({
+      $or: [{ latitude: null }, { latitude: { $exists: false } }]
+    }).select('_id hospital location');
+
+    if (reqs.length === 0) {
+      return res.json({ success: true, message: 'All requirements already have coordinates.', processed: 0 });
+    }
+
+    // Process in background — respond immediately with count
+    res.json({
+      success: true,
+      message: `Geocoding ${reqs.length} requirements in background. This may take ~${Math.ceil(reqs.length * 1.2)} seconds.`,
+      queued: reqs.length,
+    });
+
+    // Background processing with 1.2s delay between calls (Nominatim rate limit)
+    let success = 0, failed = 0;
+    for (const r of reqs) {
+      try {
+        await geocodeAndUpdateRequirement(r._id, r.hospital || '', r.location || '');
+        success++;
+      } catch (err) {
+        failed++;
+        console.error(`[Backfill] Failed ${r._id}:`, err.message);
+      }
+      // Rate limit: Nominatim requires max 1 request per second
+      await new Promise(resolve => setTimeout(resolve, 1200));
+    }
+    console.log(`[Backfill] Complete: ${success} geocoded, ${failed} failed out of ${reqs.length}`);
+  } catch(err) {
+    // If response already sent, just log
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: friendlyError(err, 'GeoBackfill') });
+    } else {
+      console.error('[Backfill] Error after response sent:', err.message);
+    }
+  }
 });
 
 
@@ -1454,10 +1803,11 @@ app.post('/api/requirements/bulk', authenticate, adminOnly, async (req, res) => 
           if (isNaN(requiredBy.getTime())) requiredBy = undefined;
         }
 
-        await BloodRequirement.create({
+        const bulkLocation = (raw.location || '').toString().trim();
+        const created = await BloodRequirement.create({
           patientName,
           hospital,
-          location:      (raw.location || '').toString().trim(),
+          location:      bulkLocation,
           contactPerson,
           contactPhone,
           bloodType:     bt,
@@ -1468,6 +1818,9 @@ app.post('/api/requirements/bulk', authenticate, adminOnly, async (req, res) => 
           notes:         (raw.notes || '').toString().trim(),
           createdBy:     req.user.username
         });
+        // Background geocode — non-blocking, tolerates failures
+        geocodeAndUpdateRequirement(created._id, hospital, bulkLocation)
+          .catch(err => console.error(`[Geocode] Bulk row ${rowNum} error:`, err.message));
         results.inserted++;
       } catch(rowErr) {
         results.skipped++;
@@ -1891,7 +2244,7 @@ app.get('/api/auth/profile', authenticate, async (req, res) => {
 // PUT /api/auth/profile — update own profile (username, email, bloodType + donor fields)
 app.put('/api/auth/profile', authenticate, async (req, res) => {
   try {
-    const { firstName, lastName, username, email, bloodType, isAvailable, address, lastDonationDate } = req.body;
+    const { firstName, lastName, username, email, bloodType, isAvailable, address, city, lastDonationDate } = req.body;
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
 
@@ -1925,6 +2278,7 @@ app.put('/api/auth/profile', authenticate, async (req, res) => {
     if (bloodType !== undefined)      user.bloodType        = bloodType ? bloodType.trim() : '';
     if (isAvailable !== undefined)    user.isAvailable      = Boolean(isAvailable);
     if (address !== undefined)        user.address          = address ? address.trim() : '';
+    if (city !== undefined)           user.city             = city ? city.trim() : '';
     if (lastDonationDate !== undefined) user.lastDonationDate = lastDonationDate ? new Date(lastDonationDate) : null;
 
     await user.save();
@@ -1941,6 +2295,7 @@ app.put('/api/auth/profile', authenticate, async (req, res) => {
       bloodType:        user.bloodType || '',
       isAvailable:      user.isAvailable,
       address:          user.address || '',
+      city:             user.city || '',
       lastDonationDate: user.lastDonationDate || null,
           };
     res.json({ success: true, user: updated, message: 'Profile updated successfully!' });
