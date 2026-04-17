@@ -2529,8 +2529,8 @@ app.post('/api/requirements/:id/donations/:donorUsername/status', authenticate, 
       const completionDate = new Date();
       const donorUser = await User.findOne({ username: donorUsername });
       if (donorUser) {
-        await User.findByIdAndUpdate(donorUser._id, { lastDonationDate: completionDate });
-        console.log(`✅ lastDonationDate updated for ${donorUsername} on completion`);
+        await User.findByIdAndUpdate(donorUser._id, { lastDonationDate: completionDate, isAvailable: false });
+        console.log(`✅ lastDonationDate updated and isAvailable set to false for ${donorUsername} on completion`);
       }
 
       // 3. Remove all OTHER Pending pledges by this donor from other requirements.
