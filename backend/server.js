@@ -144,8 +144,20 @@ async function sendFcmPushForRequirement(requirement) {
   }
 }
 
-// Add FCM token endpoint (saves device token for targeted pushes)
+// ── FCM TOKEN — save/update device token for targeted pushes ──
 // POST /api/auth/fcm-token
+app.post('/api/auth/fcm-token', authenticate, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token || typeof token !== 'string' || token.trim().length < 10)
+      return res.status(400).json({ success: false, error: 'Invalid FCM token.' });
+
+    await User.findByIdAndUpdate(req.user.id, { fcmToken: token.trim() });
+    res.json({ success: true });
+  } catch(err) {
+    res.status(500).json({ success: false, error: friendlyError(err, 'FCMToken') });
+  }
+});
 
 // ── FRIENDLY ERROR HELPER ────────────────────────────────────────────────────
 // Converts raw database/system errors into readable messages for users.
@@ -950,8 +962,9 @@ app.post('/api/auth/register-direct', async (req, res) => {
       return res.status(400).json({ success: false, error: 'First name and last name are required.' });
     if (!bloodType || !['A+','A-','B+','B-','AB+','AB-','O+','O-'].includes(bloodType))
       return res.status(400).json({ success: false, error: 'Please select a valid blood type.' });
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
-      return res.status(400).json({ success: false, error: 'A valid email address is required.' });
+    // Email is optional — validate only when provided
+    if (email && email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
+      return res.status(400).json({ success: false, error: 'Please enter a valid email address.' });
 
     // Create User account (single record — no separate Donor table)
     const hashedPwd = await bcrypt.hash(mob + '_reg_' + Date.now(), 10);
@@ -1707,6 +1720,91 @@ app.post('/api/requirements/:id/donate', authenticate, async (req, res) => {
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
+// ── NOTIFY REQUESTER OF PLEDGE ──────────────────────────────
+// POST /api/requirements/:id/notify-pledge
+// Called by the Flutter app right after a donor pledges.
+// Sends an in-app notification + FCM push directly to the
+// requirement creator so they know immediately that someone responded.
+app.post('/api/requirements/:id/notify-pledge', authenticate, async (req, res) => {
+  try {
+    const req_ = await BloodRequirement.findById(req.params.id).lean();
+    if (!req_) return res.status(404).json({ success: false, error: 'Requirement not found.' });
+
+    const requesterUsername = req_.createdBy;
+    if (!requesterUsername) return res.json({ success: true }); // no requester to notify
+
+    // Don't notify if the requester is pledging to their own request
+    if (requesterUsername === req.user.username) return res.json({ success: true });
+
+    const donorName = req.user.username; // fallback; real name looked up below
+    const fullDonor = await User.findById(req.user.id).lean();
+    const donorDisplayName = fullDonor
+      ? (((fullDonor.firstName || '') + ' ' + (fullDonor.lastName || '')).trim() || req.user.username)
+      : req.user.username;
+
+    const title   = `🩸 New Donor for ${req_.patientName}`;
+    const message = `${donorDisplayName} has pledged to donate ${req_.bloodType} blood at ${req_.hospital}. Open the app to review.`;
+
+    // 1. Create in-app notification for the requester
+    await Notification.create({
+      username:      requesterUsername,
+      type:          'pledge',
+      title,
+      message,
+      bloodType:     req_.bloodType,
+      requirementId: req_._id,
+      isRead:        false,
+    });
+    console.log(`🔔 In-app pledge notification created for requester: ${requesterUsername}`);
+
+    // 2. Send FCM push directly to the requester's device token (if available)
+    if (firebaseAdmin) {
+      const requesterUser = await User.findOne({ username: requesterUsername }, 'fcmToken').lean();
+      const fcmToken = requesterUser?.fcmToken;
+
+      if (fcmToken && fcmToken.trim().length > 10) {
+        try {
+          await firebaseAdmin.messaging().send({
+            token: fcmToken,
+            notification: { title, body: message },
+            data: {
+              type:          'pledge',
+              requirementId: req_._id.toString(),
+              bloodType:     req_.bloodType,
+            },
+            android: {
+              priority: 'high',
+              notification: {
+                channelId:            'bloodconnect_alerts',
+                color:                '#C8102E',
+                sound:                'default',
+                notificationPriority: 'PRIORITY_HIGH',
+                visibility:           'PUBLIC',
+              },
+            },
+            apns: {
+              headers: { 'apns-priority': '10' },
+              payload: { aps: { sound: 'default', badge: 1 } },
+            },
+          });
+          console.log(`🔔 FCM pledge push sent to requester: ${requesterUsername}`);
+        } catch(fcmErr) {
+          // Non-fatal — log and continue
+          console.error('[FCM] Pledge push error:', fcmErr.message);
+        }
+      } else {
+        console.log(`[Pledge Notify] Requester ${requesterUsername} has no FCM token — in-app only`);
+      }
+    }
+
+    res.json({ success: true, message: 'Requester notified.' });
+  } catch(err) {
+    // Never block the donor's pledge flow — respond 200 even on error
+    console.error('[notify-pledge]', err.message);
+    res.status(500).json({ success: false, error: friendlyError(err, 'NotifyPledge') });
+  }
+});
+
 // ── DECLINE ──────────────────────────────────────────────────
 app.post('/api/requirements/:id/decline', authenticate, async (req, res) => {
   try {
@@ -2001,8 +2099,9 @@ app.post('/api/users', authenticate, adminOnly, async (req, res) => {
       return res.status(400).json({ success: false, error: 'First name and last name are required.' });
     if (!bloodType || !['A+','A-','B+','B-','AB+','AB-','O+','O-'].includes(bloodType))
       return res.status(400).json({ success: false, error: 'Please select a valid blood type.' });
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
-      return res.status(400).json({ success: false, error: 'A valid email address is required.' });
+    // Email is optional — validate only when provided
+    if (email && email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
+      return res.status(400).json({ success: false, error: 'Please enter a valid email address.' });
     if (!username || username.trim().length < 3)
       return res.status(400).json({ success: false, error: 'Username must be at least 3 characters.' });
     if (!password || password.length < 6)
