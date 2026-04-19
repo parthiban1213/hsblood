@@ -144,6 +144,90 @@ async function sendFcmPushForRequirement(requirement) {
   }
 }
 
+// ── Helper: notify the requirement creator when a donor pledges ─
+// Called directly from the donate endpoint — no second HTTP call needed.
+async function notifyRequesterOfPledge(requirement, donorUser) {
+  try {
+    const requesterUsername = requirement.createdBy;
+    if (!requesterUsername) return;
+    if (requesterUsername === donorUser.username) return; // self-pledge
+
+    const donorDisplayName =
+      ((donorUser.firstName || '') + ' ' + (donorUser.lastName || '')).trim() ||
+      donorUser.username;
+
+    const title   = `🩸 New Donor for ${requirement.patientName}`;
+    const message = `${donorDisplayName} has pledged to donate ${requirement.bloodType} blood at ${requirement.hospital}. Open the app to review.`;
+
+    // 1. In-app notification
+    await Notification.create({
+      username:      requesterUsername,
+      type:          'pledge',
+      title,
+      message,
+      bloodType:     requirement.bloodType,
+      requirementId: requirement._id,
+      isRead:        false,
+    });
+    console.log(`🔔 Pledge notification created for requester: ${requesterUsername}`);
+
+    // 2. FCM direct push to requester's device
+    if (firebaseAdmin) {
+      const requesterUser = await User.findOne({ username: requesterUsername }, 'fcmToken').lean();
+      const fcmToken = requesterUser?.fcmToken;
+      if (fcmToken && fcmToken.trim().length > 10) {
+        try {
+          await firebaseAdmin.messaging().send({
+            token: fcmToken,
+            notification: { title, body: message },
+            data: {
+              type:          'pledge',
+              requirementId: requirement._id.toString(),
+              bloodType:     requirement.bloodType,
+            },
+            android: {
+              priority: 'high',
+              notification: {
+                channelId:            'bloodconnect_alerts',
+                color:                '#C8102E',
+                sound:                'default',
+                notificationPriority: 'PRIORITY_HIGH',
+                visibility:           'PUBLIC',
+              },
+            },
+            apns: {
+              headers: { 'apns-priority': '10' },
+              payload: { aps: { sound: 'default', badge: 1 } },
+            },
+          });
+          console.log(`🔔 FCM pledge push sent to requester: ${requesterUsername}`);
+        } catch(fcmErr) {
+          console.error('[FCM] Pledge push error:', fcmErr.message);
+        }
+      } else {
+        console.log(`[Pledge Notify] Requester ${requesterUsername} has no FCM token — in-app only`);
+      }
+    }
+  } catch(err) {
+    console.error('[notifyRequesterOfPledge]', err.message);
+  }
+}
+
+// ── FCM TOKEN — save/update device token for targeted pushes ──
+// POST /api/auth/fcm-token
+app.post('/api/auth/fcm-token', authenticate, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token || typeof token !== 'string' || token.trim().length < 10)
+      return res.status(400).json({ success: false, error: 'Invalid FCM token.' });
+
+    await User.findByIdAndUpdate(req.user.id, { fcmToken: token.trim() });
+    res.json({ success: true });
+  } catch(err) {
+    res.status(500).json({ success: false, error: friendlyError(err, 'FCMToken') });
+  }
+});
+
 // ── FRIENDLY ERROR HELPER ────────────────────────────────────────────────────
 // Converts raw database/system errors into readable messages for users.
 // Technical details are logged server-side only.
@@ -848,23 +932,6 @@ app.post('/api/auth/otp/register', async (req, res) => {
     // Validate required fields
     if (!firstName || !lastName) return res.status(400).json({ success: false, error: 'First name and last name are required.' });
     if (!bloodType) return res.status(400).json({ success: false, error: 'Blood type is required.' });
-
-// ── FCM TOKEN — save/update device token for targeted pushes ──
-// POST /api/auth/fcm-token
-app.post('/api/auth/fcm-token', authenticate, async (req, res) => {
-  try {
-    const { token } = req.body;
-    if (!token || typeof token !== 'string' || token.trim().length < 10)
-      return res.status(400).json({ success: false, error: 'Invalid FCM token.' });
-
-    await User.findByIdAndUpdate(req.user.id, { fcmToken: token.trim() });
-    res.json({ success: true });
-  } catch(err) {
-    res.status(500).json({ success: false, error: friendlyError(err, 'FCMToken') });
-  }
-});
-
-// ─── BLOOD TYPE ROUTES ────────────────────────────────────────
 
     const VALID_BT = ['A+','A-','B+','B-','AB+','AB-','O+','O-'];
     if (!VALID_BT.includes(bloodType))
@@ -1717,6 +1784,11 @@ app.post('/api/requirements/:id/donate', authenticate, async (req, res) => {
 
     // NOTE: lastDonationDate is NOT updated here.
     // It is updated only when the requester marks the donation as Completed.
+
+    // Notify the requester immediately — runs in background, never blocks response
+    notifyRequesterOfPledge(req_, fullUser).catch(err =>
+      console.error('[donate] notify error:', err.message)
+    );
 
     res.json({ success: true, message: req_.status === 'Fulfilled' ? 'This requirement is now fully fulfilled.' : 'Donation recorded! ' + req_.remainingUnits + ' unit(s) still needed.', data: { remainingUnits: req_.remainingUnits, status: req_.status } });
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
