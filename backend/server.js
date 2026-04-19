@@ -144,21 +144,6 @@ async function sendFcmPushForRequirement(requirement) {
   }
 }
 
-// ── FCM TOKEN — save/update device token for targeted pushes ──
-// POST /api/auth/fcm-token
-app.post('/api/auth/fcm-token', authenticate, async (req, res) => {
-  try {
-    const { token } = req.body;
-    if (!token || typeof token !== 'string' || token.trim().length < 10)
-      return res.status(400).json({ success: false, error: 'Invalid FCM token.' });
-
-    await User.findByIdAndUpdate(req.user.id, { fcmToken: token.trim() });
-    res.json({ success: true });
-  } catch(err) {
-    res.status(500).json({ success: false, error: friendlyError(err, 'FCMToken') });
-  }
-});
-
 // ── FRIENDLY ERROR HELPER ────────────────────────────────────────────────────
 // Converts raw database/system errors into readable messages for users.
 // Technical details are logged server-side only.
@@ -863,6 +848,23 @@ app.post('/api/auth/otp/register', async (req, res) => {
     // Validate required fields
     if (!firstName || !lastName) return res.status(400).json({ success: false, error: 'First name and last name are required.' });
     if (!bloodType) return res.status(400).json({ success: false, error: 'Blood type is required.' });
+
+// ── FCM TOKEN — save/update device token for targeted pushes ──
+// POST /api/auth/fcm-token
+app.post('/api/auth/fcm-token', authenticate, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token || typeof token !== 'string' || token.trim().length < 10)
+      return res.status(400).json({ success: false, error: 'Invalid FCM token.' });
+
+    await User.findByIdAndUpdate(req.user.id, { fcmToken: token.trim() });
+    res.json({ success: true });
+  } catch(err) {
+    res.status(500).json({ success: false, error: friendlyError(err, 'FCMToken') });
+  }
+});
+
+// ─── BLOOD TYPE ROUTES ────────────────────────────────────────
 
     const VALID_BT = ['A+','A-','B+','B-','AB+','AB-','O+','O-'];
     if (!VALID_BT.includes(bloodType))
