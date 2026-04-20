@@ -128,16 +128,73 @@ async function sendFcmPushForRequirement(requirement) {
     },
   });
 
-  // Topic push — all devices subscribed to this blood type receive exactly one notification.
-  // The Flutter app re-subscribes on every login and app resume, so topic coverage is reliable.
-  // A separate per-device push is intentionally omitted here to prevent duplicate notifications
-  // on devices that have both a valid topic subscription and a saved FCM token.
+  // ── Path A: Topic push (catches all devices subscribed to this blood type) ──
+  // This is the primary path. Devices subscribe to blood_A_pos etc. via FCM SDK.
   const topic = 'blood_' + bloodType.replaceAll('+', '_pos').replaceAll('-', '_neg');
   try {
     await firebaseAdmin.messaging().send(buildPayload({ topic }));
+    console.log(`🔔 FCM topic push → "${topic}" for ${bloodType} requirement`);
   } catch(err) {
     // "Requested entity was not found" = no devices on this topic yet (normal on first use)
     console.warn(`[FCM] Topic push to "${topic}" failed: [${err.code || '?'}] ${err.message}`);
+  }
+
+  // ── Path B: Per-device push (fallback for devices whose topic subscription ──
+  // was lost — e.g. after app reinstall before the next app open re-subscribes)
+  // Fetch all matching donors who have a saved FCM token.
+  try {
+    const matchingUsers = await User.find({
+      role:        'user',
+      bloodType:   bloodType,
+      isAvailable: { $ne: false },
+      username:    { $ne: createdBy },
+      fcmToken:    { $exists: true, $ne: '' },
+    }, 'username fcmToken').lean();
+
+    if (!matchingUsers.length) {
+      console.log(`[FCM] No per-device tokens found for ${bloodType} donors`);
+      return;
+    }
+
+    // Filter to tokens with reasonable length (> 10 chars)
+    const tokens = matchingUsers
+      .map(u => u.fcmToken?.trim())
+      .filter(t => t && t.length > 10);
+
+    if (!tokens.length) return;
+
+    // sendEachForMulticast sends to up to 500 tokens at once
+    const batchSize = 500;
+    let sentCount = 0, failCount = 0;
+    for (let i = 0; i < tokens.length; i += batchSize) {
+      const batch = tokens.slice(i, i + batchSize);
+      const multicastMsg = {
+        ...buildPayload({}),
+        tokens: batch,
+      };
+      // Remove undefined top-level key if present
+      delete multicastMsg.undefined;
+
+      const response = await firebaseAdmin.messaging().sendEachForMulticast(multicastMsg);
+      sentCount += response.successCount;
+      failCount += response.failureCount;
+
+      // Clean up stale tokens (uninstalled apps)
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          const code = resp.error?.code || '';
+          if (code === 'messaging/registration-token-not-registered' ||
+              code === 'messaging/invalid-registration-token') {
+            const staleToken = batch[idx];
+            User.updateOne({ fcmToken: staleToken }, { $set: { fcmToken: '' } })
+              .catch(() => {});
+          }
+        }
+      });
+    }
+    console.log(`🔔 FCM per-device push: ${sentCount} sent, ${failCount} failed for ${bloodType} requirement`);
+  } catch(err) {
+    console.error('[FCM] Per-device push error:', err.message);
   }
 }
 
@@ -166,9 +223,13 @@ async function notifyRequesterOfPledge(requirement, donorUser) {
       requirementId: requirement._id,
       isRead:        false,
     });
+    console.log(`🔔 In-app pledge notification created for: ${requesterUsername}`);
 
     // 2. FCM direct push to requester's device token
-    if (!firebaseAdmin) return;
+    if (!firebaseAdmin) {
+      console.warn('[Pledge FCM] Firebase Admin not initialised — in-app only.');
+      return;
+    }
 
     const requesterUser = await User.findOne(
       { username: requesterUsername },
@@ -178,6 +239,13 @@ async function notifyRequesterOfPledge(requirement, donorUser) {
     const fcmToken = requesterUser?.fcmToken?.trim();
 
     if (!fcmToken || fcmToken.length <= 10) {
+      // Most common cause: requester never opened the app after registration,
+      // so their device never POSTed a token to /auth/fcm-token.
+      // The in-app notification is still visible when they next open the app.
+      console.warn(
+        `[Pledge FCM] Requester "${requesterUsername}" has no FCM token saved in DB. ` +
+        `In-app notification created. Push will work after they open the app once.`
+      );
       return;
     }
 
@@ -204,6 +272,7 @@ async function notifyRequesterOfPledge(requirement, donorUser) {
         payload: { aps: { sound: 'default', badge: 1 } },
       },
     });
+    console.log(`🔔 FCM pledge push sent to: ${requesterUsername}`);
 
   } catch(err) {
     const code = err.code || '';
@@ -359,6 +428,7 @@ async function geocodeLocation(hospital, location) {
   // Fallback: try matching location text against known city names
   const cityMatch = findCityInText(loc || hosp);
   if (cityMatch) {
+    console.log(`[Geocode] Fallback city match: "${cityMatch.name}" for "${loc || hosp}"`);
     return { latitude: cityMatch.lat, longitude: cityMatch.lng, city: cityMatch.name };
   }
 
@@ -401,6 +471,7 @@ async function nominatimGeocode(query) {
     const lng = parseFloat(data[0].lon);
     if (isNaN(lat) || isNaN(lng)) return null;
 
+    console.log(`[Geocode] Nominatim resolved "${query}" → ${lat}, ${lng}`);
     return { lat, lng };
   } catch (err) {
     if (err.name === 'AbortError') {
@@ -466,6 +537,7 @@ async function geocodeAndUpdateRequirement(requirementId, hospital, location) {
 
     if (Object.keys(update).length > 0) {
       await BloodRequirement.findByIdAndUpdate(requirementId, update);
+      console.log(`[Geocode] Updated requirement ${requirementId}: ${geo.latitude}, ${geo.longitude} (${geo.city})`);
     }
   } catch (err) {
     console.error(`[Geocode] Background update failed for ${requirementId}:`, err.message);
@@ -485,6 +557,7 @@ async function createInAppNotifications(requirement) {
       username:    { $ne: createdBy },
     }, 'username').lean();
 
+    console.log(`[Notifications] bloodType=${bloodType}, createdBy=${createdBy}, matchingUsers=${matchingUsers.length}`);
     if (!matchingUsers.length) return;
 
     const urgencyLabel = urgency === 'Critical' ? '🚨 Critical' :
@@ -505,6 +578,7 @@ async function createInAppNotifications(requirement) {
     }));
 
     await Notification.insertMany(notifications);
+    console.log(`🔔 Created ${notifications.length} notification(s) for ${bloodType} requirement (available users only)`);
   } catch(err) {
     console.error('Notification creation error:', err.message);
   }
@@ -637,6 +711,7 @@ async function sendOTP(mobile, otp) {
         from: TWILIO_FROM,
         to:   phone,
       });
+      console.log(`📱 OTP sent to ${phone}`);
     } catch (twilioErr) {
       console.error(`[Twilio] Failed to send OTP to ${phone}:`, twilioErr.message);
       throw new Error(`Could not send OTP via SMS. Twilio error: ${twilioErr.message}`);
@@ -836,6 +911,34 @@ app.post('/api/auth/otp/send', async (req, res) => {
     res.status(500).json({ success: false, error: err.message || friendlyError(err, 'OTP Send') });
   }
 });
+// ── OTP: verify only (used by registration flow before collecting details) ──
+// Checks the OTP is correct and not expired WITHOUT consuming it.
+// The OTP is left in otpStore so /auth/register-direct can consume it.
+// Returns 200 on success, 400 on wrong/expired/missing OTP.
+app.post('/api/auth/otp/verify', async (req, res) => {
+  try {
+    const { mobile, otp } = req.body;
+    if (!mobile || !otp)
+      return res.status(400).json({ success: false, error: 'Mobile number and OTP are required.' });
+
+    const mob = mobile.trim();
+    const stored = otpStore.get(mob);
+    if (!stored)
+      return res.status(400).json({ success: false, error: 'No OTP found. Please request a new OTP.' });
+    if (Date.now() > stored.expiresAt) {
+      otpStore.delete(mob);
+      return res.status(400).json({ success: false, error: 'OTP expired. Please request a new one.' });
+    }
+    if (stored.otp !== otp.trim())
+      return res.status(400).json({ success: false, error: 'Incorrect OTP. Please try again.' });
+
+    // Do NOT delete from otpStore — /auth/register-direct will consume it.
+    res.json({ success: true });
+  } catch(err) {
+    res.status(500).json({ success: false, error: friendlyError(err, 'OTPVerify') });
+  }
+});
+
 app.post('/api/auth/otp/login', async (req, res) => {
   try {
     const { mobile, otp } = req.body;
@@ -952,6 +1055,8 @@ app.post('/api/auth/otp/register', async (req, res) => {
       { expiresIn: '24h' }
     );
 
+    console.log(`✅ New HS Employee registered via OTP → mobile: ${mob}, username: ${autoUsername}`);
+
     res.status(201).json({
       success: true,
       token,
@@ -1036,6 +1141,8 @@ app.post('/api/auth/register-direct', async (req, res) => {
     });
 
     const token = jwt.sign({ id: newUser._id, username: newUser.username, role: newUser.role }, JWT_SECRET, { expiresIn: '24h' });
+    console.log(`✅ HS Employee registered → username: ${uname}, mobile: ${mob}`);
+
     res.status(201).json({
       success: true, token,
       user: {
@@ -1091,6 +1198,7 @@ app.post('/api/auth/mobile/update', authenticate, async (req, res) => {
 
     // No separate Donor record to sync — mobile is stored directly on User.
 
+    console.log(`✅ Mobile updated for ${user.username}: ${oldMobile} → ${mob}`);
     res.json({ success: true, message: 'Mobile number updated successfully!' });
   } catch(err) {
     if (err.code === 11000) return res.status(409).json({ success: false, error: 'This mobile number is already registered to another account.' });
@@ -1177,6 +1285,8 @@ app.post('/api/auth/register', async (req, res) => {
       role:      'user',
       bloodType: req.body.bloodType ? req.body.bloodType.trim() : '',
     });
+
+    console.log(`✅ New HS Employee registered → username: ${newUser.username}`);
 
     res.status(201).json({
       success: true,
@@ -2405,6 +2515,7 @@ app.delete('/api/auth/account', authenticate, async (req, res) => {
 
     await Notification.deleteMany({ username: user.username });
     await User.findByIdAndDelete(user._id);
+    console.log(`🗑 Self-deleted: ${user.username} (mobile: ${user.mobile || 'none'})`);
     res.json({ success: true, message: 'Your account has been permanently deleted.' });
   } catch(err) {
     res.status(500).json({ success: false, error: friendlyError(err, 'AccountDelete') });
@@ -2552,6 +2663,7 @@ app.post('/api/support/send', async (req, res) => {
       `,
     });
 
+    console.log(`📧 Support email sent — from: ${fromEmail}, subject: "${subject}"`);
     res.json({ success: true });
 
   } catch(err) {
@@ -2609,15 +2721,17 @@ app.post('/api/requirements/:id/donations/:donorUsername/status', authenticate, 
         req_.donations = req_.donations.filter(
           d => d.donorUsername === donorUsername || d.donationStatus === 'Completed'
         );
+        console.log(`✅ Req ${req_._id} Fulfilled — cleared remaining pending pledges`);
       }
 
       await req_.save();
 
-      // 2. Update lastDonationDate on User
+      // 2. Update lastDonationDate on User + linked Donor
       const completionDate = new Date();
       const donorUser = await User.findOne({ username: donorUsername });
       if (donorUser) {
         await User.findByIdAndUpdate(donorUser._id, { lastDonationDate: completionDate, isAvailable: false });
+        console.log(`✅ lastDonationDate updated and isAvailable set to false for ${donorUsername} on completion`);
       }
 
       // 3. Remove all OTHER Pending pledges by this donor from other requirements.
@@ -2633,8 +2747,10 @@ app.post('/api/requirements/:id/donations/:donorUsername/status', authenticate, 
         );
         if (idx !== -1) {
           other.donations.splice(idx, 1);
+          // remainingUnits is NOT restored — pledging never changed it, so nothing to undo.
           other.updatedAt = new Date();
           await other.save();
+          console.log(`🗑 Removed pending pledge by ${donorUsername} from req ${other._id}`);
         }
       }
 
