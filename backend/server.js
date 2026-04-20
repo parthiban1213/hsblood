@@ -173,40 +173,50 @@ async function notifyRequesterOfPledge(requirement, donorUser) {
 
     // 2. FCM direct push to requester's device
     if (firebaseAdmin) {
-      const requesterUser = await User.findOne({ username: requesterUsername }, 'fcmToken').lean();
+      const requesterUser = await User.findOne({ username: requesterUsername }, 'fcmToken username').lean();
       const fcmToken = requesterUser?.fcmToken;
-      if (fcmToken && fcmToken.trim().length > 10) {
-        try {
-          await firebaseAdmin.messaging().send({
-            token: fcmToken,
-            notification: { title, body: message },
-            data: {
-              type:          'pledge',
-              requirementId: requirement._id.toString(),
-              bloodType:     requirement.bloodType,
-            },
-            android: {
-              priority: 'high',
-              notification: {
-                channelId:            'bloodconnect_alerts',
-                color:                '#C8102E',
-                sound:                'default',
-                notificationPriority: 'PRIORITY_HIGH',
-                visibility:           'PUBLIC',
-              },
-            },
-            apns: {
-              headers: { 'apns-priority': '10' },
-              payload: { aps: { sound: 'default', badge: 1 } },
-            },
-          });
-          console.log(`🔔 FCM pledge push sent to requester: ${requesterUsername}`);
-        } catch(fcmErr) {
-          console.error('[FCM] Pledge push error:', fcmErr.message);
-        }
-      } else {
-        console.log(`[Pledge Notify] Requester ${requesterUsername} has no FCM token — in-app only`);
+
+      // Debug: always log the token status so you can diagnose missing pushes
+      if (!fcmToken || fcmToken.trim().length <= 10) {
+        console.warn(`[Pledge Notify] Requester "${requesterUsername}" has no FCM token saved — ` +
+          `in-app notification only. The requester must open the app once to register their device token.`);
+        return;
       }
+
+      try {
+        await firebaseAdmin.messaging().send({
+          token: fcmToken,
+          notification: { title, body: message },
+          data: {
+            type:          'pledge',
+            requirementId: requirement._id.toString(),
+            bloodType:     requirement.bloodType,
+          },
+          android: {
+            priority: 'high',
+            notification: {
+              channelId:            'bloodconnect_alerts',
+              color:                '#C8102E',
+              sound:                'default',
+              notificationPriority: 'PRIORITY_HIGH',
+              visibility:           'PUBLIC',
+            },
+          },
+          apns: {
+            headers: { 'apns-priority': '10' },
+            payload: { aps: { sound: 'default', badge: 1 } },
+          },
+        });
+        console.log(`🔔 FCM pledge push sent to requester: ${requesterUsername}`);
+      } catch(fcmErr) {
+        // Log the full error code — common causes:
+        //  "registration-token-not-registered" → user uninstalled/reinstalled app
+        //  "invalid-argument" → malformed token
+        //  "messaging/mismatched-credential" → wrong Firebase project
+        console.error(`[FCM] Pledge push error for "${requesterUsername}": [${fcmErr.code}] ${fcmErr.message}`);
+      }
+    } else {
+      console.warn('[Pledge Notify] Firebase Admin not initialised — cannot send push. Set FIREBASE_SERVICE_ACCOUNT_JSON env var.');
     }
   } catch(err) {
     console.error('[notifyRequesterOfPledge]', err.message);
@@ -1795,87 +1805,13 @@ app.post('/api/requirements/:id/donate', authenticate, async (req, res) => {
 
 // ── NOTIFY REQUESTER OF PLEDGE ──────────────────────────────
 // POST /api/requirements/:id/notify-pledge
-// Called by the Flutter app right after a donor pledges.
-// Sends an in-app notification + FCM push directly to the
-// requirement creator so they know immediately that someone responded.
+// NOTE: The donate endpoint already calls notifyRequesterOfPledge() internally.
+// This endpoint is kept for backward compatibility with older app versions.
+// New app versions do NOT call this — the donate endpoint handles it.
 app.post('/api/requirements/:id/notify-pledge', authenticate, async (req, res) => {
-  try {
-    const req_ = await BloodRequirement.findById(req.params.id).lean();
-    if (!req_) return res.status(404).json({ success: false, error: 'Requirement not found.' });
-
-    const requesterUsername = req_.createdBy;
-    if (!requesterUsername) return res.json({ success: true }); // no requester to notify
-
-    // Don't notify if the requester is pledging to their own request
-    if (requesterUsername === req.user.username) return res.json({ success: true });
-
-    const donorName = req.user.username; // fallback; real name looked up below
-    const fullDonor = await User.findById(req.user.id).lean();
-    const donorDisplayName = fullDonor
-      ? (((fullDonor.firstName || '') + ' ' + (fullDonor.lastName || '')).trim() || req.user.username)
-      : req.user.username;
-
-    const title   = `🩸 New Donor for ${req_.patientName}`;
-    const message = `${donorDisplayName} has pledged to donate ${req_.bloodType} blood at ${req_.hospital}. Open the app to review.`;
-
-    // 1. Create in-app notification for the requester
-    await Notification.create({
-      username:      requesterUsername,
-      type:          'pledge',
-      title,
-      message,
-      bloodType:     req_.bloodType,
-      requirementId: req_._id,
-      isRead:        false,
-    });
-    console.log(`🔔 In-app pledge notification created for requester: ${requesterUsername}`);
-
-    // 2. Send FCM push directly to the requester's device token (if available)
-    if (firebaseAdmin) {
-      const requesterUser = await User.findOne({ username: requesterUsername }, 'fcmToken').lean();
-      const fcmToken = requesterUser?.fcmToken;
-
-      if (fcmToken && fcmToken.trim().length > 10) {
-        try {
-          await firebaseAdmin.messaging().send({
-            token: fcmToken,
-            notification: { title, body: message },
-            data: {
-              type:          'pledge',
-              requirementId: req_._id.toString(),
-              bloodType:     req_.bloodType,
-            },
-            android: {
-              priority: 'high',
-              notification: {
-                channelId:            'bloodconnect_alerts',
-                color:                '#C8102E',
-                sound:                'default',
-                notificationPriority: 'PRIORITY_HIGH',
-                visibility:           'PUBLIC',
-              },
-            },
-            apns: {
-              headers: { 'apns-priority': '10' },
-              payload: { aps: { sound: 'default', badge: 1 } },
-            },
-          });
-          console.log(`🔔 FCM pledge push sent to requester: ${requesterUsername}`);
-        } catch(fcmErr) {
-          // Non-fatal — log and continue
-          console.error('[FCM] Pledge push error:', fcmErr.message);
-        }
-      } else {
-        console.log(`[Pledge Notify] Requester ${requesterUsername} has no FCM token — in-app only`);
-      }
-    }
-
-    res.json({ success: true, message: 'Requester notified.' });
-  } catch(err) {
-    // Never block the donor's pledge flow — respond 200 even on error
-    console.error('[notify-pledge]', err.message);
-    res.status(500).json({ success: false, error: friendlyError(err, 'NotifyPledge') });
-  }
+  // No-op: notification is already sent by the donate endpoint.
+  // Return success so older app versions don't show an error.
+  res.json({ success: true, message: 'Notification handled by donate endpoint.' });
 });
 
 // ── DECLINE ──────────────────────────────────────────────────
