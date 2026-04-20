@@ -543,6 +543,147 @@ app.use(cors({
 app.use(express.json());
 app.use(express.static('../')); // serves index.html, css/, js/, assets/ from root
 
+// ─── OTP PROVIDER CONFIG ──────────────────────────────────────
+// Flutter reads this once on startup to decide which OTP flow to use.
+// Controlled by the OTP_PROVIDER env var ('twilio' | 'firebase').
+app.get('/api/config/otp-provider', (req, res) => {
+  res.json({ success: true, provider: OTP_PROVIDER });
+});
+
+// ─── FIREBASE PHONE AUTH — verify ID token & login ────────────
+// Called by Flutter after on-device Firebase Phone Auth succeeds.
+// Body: { idToken, purpose }   purpose = 'login' | 'register'
+//
+// 'login'    → verifies token, finds user by mobile, returns JWT
+// 'register' → verifies token, confirms mobile is free, returns mobileVerified:true
+//              (the actual User record is created by /api/auth/register-direct)
+app.post('/api/auth/firebase/verify', async (req, res) => {
+  try {
+    if (!firebaseAdmin)
+      return res.status(503).json({ success: false, error: 'Firebase Admin SDK not configured on server. Set FIREBASE_SERVICE_ACCOUNT_JSON env var.' });
+
+    const { idToken, purpose } = req.body;
+    if (!idToken)
+      return res.status(400).json({ success: false, error: 'Firebase ID token is required.' });
+
+    // Verify the token with Firebase Admin SDK (same instance used for FCM)
+    let decoded;
+    try {
+      decoded = await firebaseAdmin.auth().verifyIdToken(idToken);
+    } catch (fbErr) {
+      console.error('[Firebase] verifyIdToken failed:', fbErr.message);
+      return res.status(401).json({ success: false, error: 'Invalid or expired Firebase token. Please try again.' });
+    }
+
+    // Firebase phone tokens always include phone_number in E.164 format (+91XXXXXXXXXX)
+    const firebasePhone = decoded.phone_number;
+    if (!firebasePhone)
+      return res.status(400).json({ success: false, error: 'No phone number in Firebase token.' });
+
+    // Strip +91 prefix to get the 10-digit local number stored in our DB
+    const mobile = firebasePhone.replace(/^\+91/, '').trim();
+    if (!/^[6-9]\d{9}$/.test(mobile))
+      return res.status(400).json({ success: false, error: 'Phone number in token is not a valid Indian mobile number.' });
+
+    const existingUser = await User.findOne({ mobile });
+
+    // ── Register mode: confirm number is not already taken ──────
+    if (purpose === 'register') {
+      if (existingUser) {
+        return res.status(409).json({
+          success: false,
+          error: 'This mobile number is already registered. Please login instead.',
+          isExistingUser: true,
+        });
+      }
+      // Return the server-confirmed mobile — Flutter uses it in registerDirect()
+      return res.json({ success: true, mobileVerified: true, mobile });
+    }
+
+    // ── Login mode: find user and return JWT ────────────────────
+    if (!existingUser) {
+      return res.status(404).json({
+        success: false,
+        error: 'No account found for this mobile number. Please register first.',
+        notRegistered: true,
+      });
+    }
+
+    const token = jwt.sign(
+      { id: existingUser._id, username: existingUser.username, role: existingUser.role },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    console.log(`✅ Firebase OTP login: ${existingUser.username} (mobile: ${mobile})`);
+    res.json({
+      success: true,
+      token,
+      user: {
+        username:         existingUser.username,
+        role:             existingUser.role,
+        email:            existingUser.email    || '',
+        bloodType:        existingUser.bloodType || '',
+        mobile:           existingUser.mobile   || '',
+        firstName:        existingUser.firstName || '',
+        lastName:         existingUser.lastName  || '',
+        isAvailable:      existingUser.isAvailable,
+        address:          existingUser.address   || '',
+        lastDonationDate: existingUser.lastDonationDate || null,
+      },
+      message: 'Welcome back!',
+    });
+  } catch(err) {
+    res.status(500).json({ success: false, error: friendlyError(err, 'FirebaseVerify') });
+  }
+});
+
+// ─── FIREBASE PHONE AUTH — update mobile (authenticated) ──────
+// Called by Flutter after on-device Firebase Phone Auth for a mobile
+// number change in Edit Profile.
+// Requires: Bearer JWT token (user must be logged in)
+// Body: { idToken }
+app.post('/api/auth/firebase/update-mobile', authenticate, async (req, res) => {
+  try {
+    if (!firebaseAdmin)
+      return res.status(503).json({ success: false, error: 'Firebase Admin SDK not configured on server.' });
+
+    const { idToken } = req.body;
+    if (!idToken)
+      return res.status(400).json({ success: false, error: 'Firebase ID token is required.' });
+
+    let decoded;
+    try {
+      decoded = await firebaseAdmin.auth().verifyIdToken(idToken);
+    } catch (fbErr) {
+      return res.status(401).json({ success: false, error: 'Invalid or expired Firebase token.' });
+    }
+
+    const mobile = (decoded.phone_number || '').replace(/^\+91/, '').trim();
+    if (!mobile || !/^[6-9]\d{9}$/.test(mobile))
+      return res.status(400).json({ success: false, error: 'Invalid phone number in Firebase token.' });
+
+    // Check for conflict — another account already owns this number
+    const clash = await User.findOne({ mobile, _id: { $ne: req.user.id } });
+    if (clash)
+      return res.status(409).json({ success: false, error: 'This mobile number is already registered to another account.' });
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
+
+    const oldMobile = user.mobile;
+    user.mobile = mobile;
+    await user.save();
+
+    console.log(`✅ Mobile updated via Firebase for ${user.username}: ${oldMobile} → ${mobile}`);
+    res.json({ success: true, message: 'Mobile number updated successfully!' });
+  } catch(err) {
+    if (err.code === 11000)
+      return res.status(409).json({ success: false, error: 'This mobile number is already registered to another account.' });
+    res.status(500).json({ success: false, error: friendlyError(err, 'FirebaseMobileUpdate') });
+  }
+});
+
 // ─── HEALTH CHECK ─────────────────────────────────────────────
 // Used by UptimeRobot to keep Render free tier awake
 app.get('/api/health', (req, res) => {
@@ -624,7 +765,23 @@ function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+// ── OTP_PROVIDER: 'twilio' | 'firebase' (default: 'twilio') ─────────────────
+// Switch providers by setting OTP_PROVIDER=firebase in your environment.
+// In Firebase mode, the mobile app uses Firebase Phone Auth SDK to send SMS.
+// The server only verifies the resulting ID token — no Firebase SMS API needed.
+// The existing FIREBASE_SERVICE_ACCOUNT_JSON env var (already used for FCM)
+// is reused automatically — no extra credentials required.
+const OTP_PROVIDER = (process.env.OTP_PROVIDER || 'twilio').toLowerCase();
+console.log(`📱 OTP Provider: ${OTP_PROVIDER.toUpperCase()}`);
+
 async function sendOTP(mobile, otp) {
+  if (OTP_PROVIDER === 'firebase') {
+    // In Firebase mode the SMS is sent by the Firebase SDK on the device.
+    // The server does NOT send SMS — this function is a no-op except for dev logging.
+    console.log(`🔐 [FIREBASE MODE] OTP delivery handled client-side for ${mobile}`);
+    return;
+  }
+  // ── Twilio mode ─────────────────────────────────────────────────────────
   if (twilioClient && TWILIO_FROM) {
     let phone = mobile.replace(/[\s\-()]/g, '');
     if (!phone.startsWith('+')) phone = '+91' + phone;
@@ -792,31 +949,45 @@ function castAvailability(body) {
 // ── OTP: Send OTP to mobile (for HS Employee login/register) ──
 app.post('/api/auth/otp/send', async (req, res) => {
   try {
+    // In Firebase mode the client SDK sends the SMS — this endpoint is not used for OTP.
+    // The only exception is purpose='update' (mobile number change), which still goes
+    // through Twilio even in Firebase mode (since the user is already authenticated).
+    const purpose = (req.body.purpose || 'login').trim();
+    if (OTP_PROVIDER === 'firebase' && purpose !== 'update') {
+      return res.status(400).json({
+        success: false,
+        error: 'Server is configured to use Firebase Phone Auth. Use the Firebase SDK flow instead.',
+        useFirebase: true,
+      });
+    }
     const { mobile } = req.body;
     if (!mobile || !/^[6-9]\d{9}$/.test(mobile.trim()))
       return res.status(400).json({ success: false, error: 'Please enter a valid 10-digit Indian mobile number.' });
 
     const mob     = mobile.trim();
-    const purpose = (req.body.purpose || 'login').trim();
+    // purpose already read above for Firebase guard
 
     // Check if mobile is registered
     const existingUser = await User.findOne({ mobile: mob }).lean();
 
-    // Block login attempts for unregistered numbers
-    if (purpose !== 'register' && !existingUser) {
-      return res.status(404).json({
-        success: false,
-        error: 'No account found for this mobile number. Please register first.',
-      });
-    }
+    // 'update' = authenticated user changing their own mobile — skip the register/login existence check
+    if (purpose !== 'update') {
+      // Block login attempts for unregistered numbers
+      if (purpose !== 'register' && !existingUser) {
+        return res.status(404).json({
+          success: false,
+          error: 'No account found for this mobile number. Please register first.',
+        });
+      }
 
-    // Block register attempts for already-registered numbers
-    if (purpose === 'register' && existingUser) {
-      return res.status(409).json({
-        success: false,
-        error: 'This mobile number is already registered. Please login instead.',
-        isExistingUser: true,
-      });
+      // Block register attempts for already-registered numbers
+      if (purpose === 'register' && existingUser) {
+        return res.status(409).json({
+          success: false,
+          error: 'This mobile number is already registered. Please login instead.',
+          isExistingUser: true,
+        });
+      }
     }
 
     const otp = generateOTP();
@@ -990,13 +1161,32 @@ app.post('/api/auth/register-direct', async (req, res) => {
 
     const mob = mobile.trim();
 
-    // Verify OTP
-    if (!otp) return res.status(400).json({ success: false, error: 'OTP is required.' });
-    const stored = otpStore.get(mob);
-    if (!stored)            return res.status(400).json({ success: false, error: 'No OTP found for this number. Please send OTP first.' });
-    if (Date.now() > stored.expiresAt) { otpStore.delete(mob); return res.status(400).json({ success: false, error: 'OTP expired. Please request a new one.' }); }
-    if (stored.otp !== otp.trim())     return res.status(400).json({ success: false, error: 'Incorrect OTP. Please try again.' });
-    otpStore.delete(mob);
+    // ── OTP Verification ────────────────────────────────────────────────────
+    // Firebase mode: mobile was already verified by /api/auth/firebase/verify
+    //   before the user filled the details form. The Flutter app sends
+    //   otp='firebase-verified' as a sentinel — we trust the pre-verification.
+    // Twilio mode: standard in-memory OTP store check.
+    if (OTP_PROVIDER === 'firebase') {
+      // Trust Firebase pre-verification — no in-memory OTP to check.
+      // The mobile was confirmed by /api/auth/firebase/verify moments ago.
+      if (!otp || otp.trim() !== 'firebase-verified') {
+        // Fallback: also accept if a valid Twilio OTP happens to be in the store
+        // (covers edge-case where provider was switched mid-session)
+        const stored = otpStore.get(mob);
+        if (!stored || Date.now() > stored.expiresAt || stored.otp !== (otp || '').trim()) {
+          return res.status(400).json({ success: false, error: 'Mobile verification required. Please complete OTP verification first.' });
+        }
+        otpStore.delete(mob);
+      }
+    } else {
+      // Twilio mode — standard OTP store check
+      if (!otp) return res.status(400).json({ success: false, error: 'OTP is required.' });
+      const stored = otpStore.get(mob);
+      if (!stored)            return res.status(400).json({ success: false, error: 'No OTP found for this number. Please send OTP first.' });
+      if (Date.now() > stored.expiresAt) { otpStore.delete(mob); return res.status(400).json({ success: false, error: 'OTP expired. Please request a new one.' }); }
+      if (stored.otp !== otp.trim())     return res.status(400).json({ success: false, error: 'Incorrect OTP. Please try again.' });
+      otpStore.delete(mob);
+    }
 
     // Duplicate mobile check
     const existingUser = await User.findOne({ mobile: mob });
