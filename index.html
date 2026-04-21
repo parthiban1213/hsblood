@@ -368,15 +368,8 @@
               </div>
             </div>
 
-            <!-- Username -->
-            <div class="form-group" style="grid-column:1/-1">
-              <label>Username * <span style="color:var(--text3);font-weight:400">(min. 3 characters)</span></label>
-              <div class="login-input-wrap">
-                <span class="input-icon">👤</span>
-                <input type="text" id="reg-username-new" placeholder="Choose a username" autocomplete="off"
-                  style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px 10px 40px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
-              </div>
-            </div>
+            <!-- Username auto-generated; hidden field kept for backend compatibility -->
+            <input type="hidden" id="reg-username-new" />
 
             <div class="form-group">
               <label>First Name *</label>
@@ -384,8 +377,13 @@
                 style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
             </div>
             <div class="form-group">
-              <label>Last Name *</label>
+              <label>Last Name <span style="color:var(--text3);font-weight:400">(optional)</span></label>
               <input type="text" id="reg-lastName" placeholder="Last name"
+                style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+            </div>
+            <div class="form-group" style="grid-column:1/-1">
+              <label>City *</label>
+              <input type="text" id="reg-city" placeholder="Your city"
                 style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
             </div>
             <div class="form-group" style="grid-column:1/-1">
@@ -400,7 +398,7 @@
               </select>
             </div>
             <div class="form-group" style="grid-column:1/-1">
-              <label>Email Address *</label>
+              <label>Email Address <span style="color:var(--text3);font-weight:400">(optional)</span></label>
               <input type="email" id="reg-email-new" placeholder="you@example.com"
                 style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
             </div>
@@ -593,7 +591,7 @@
           <div class="value">8</div>
           <div class="sub">ABO + Rh system</div>
         </div>
-        <div class="dash-stat" style="cursor:pointer" id="dash-stat-requirements" onclick="showPage('requirements',document.getElementById('nav-requirements'))">
+        <div class="dash-stat" style="cursor:pointer" id="dash-stat-requirements" onclick="showPage('respond',document.getElementById('nav-respond'))">
           <div class="label" style="color:#DC2626">Open Requests</div>
           <div class="value" id="d-open-reqs" style="color:#DC2626">—</div>
           <div class="sub">Blood requirements</div>
@@ -1037,6 +1035,13 @@
             style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
         </div>
 
+        <div class="form-group" style="margin-bottom:14px">
+          <label>City</label>
+          <input type="text" id="profile-city" data-testid="profile-city"
+            placeholder="Your city"
+            style="width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-body);font-size:0.88rem;outline:none"/>
+        </div>
+
         <div style="display:flex;gap:10px;align-items:center;padding-top:6px">
           <button id="profile-save-btn" data-testid="profile-save-btn" class="btn btn-primary" onclick="saveProfile()">💾 Save Changes</button>
           <button class="btn btn-outline" onclick="loadProfile()">↺ Reset</button>
@@ -1125,10 +1130,10 @@
     <div style="padding:20px" id="donate-confirm-body"></div>
     <div style="padding:0 20px 20px">
       <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:14px">
-        <div style="font-size:0.78rem;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em">📅 Pick a Date &amp; Time</div>
+        <div style="font-size:0.78rem;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em">📅 Pick a Date &amp; Time <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3)">(optional)</span></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div>
-            <label style="display:block;font-size:0.75rem;font-weight:600;color:var(--text2);margin-bottom:5px">Donation Date</label>
+            <label style="display:block;font-size:0.75rem;font-weight:600;color:var(--text2);margin-bottom:5px">Donation Date <span style="font-weight:400;color:var(--text3)">(optional)</span></label>
             <input type="date" id="donate-schedule-date" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:0.85rem;background:var(--bg);color:var(--text);font-family:var(--font-ui);box-sizing:border-box" />
           </div>
           <div>

@@ -56,6 +56,7 @@ function renderProfile(user) {
   _setVal('profile-mobile',    user.mobile    || '');
   _setVal('profile-available', user.isAvailable !== undefined ? String(user.isAvailable) : 'true');
   _setVal('profile-address',   user.address   || '');
+  _setVal('profile-city',      user.city      || '');
   _setVal('profile-lastDonation', user.lastDonationDate ? user.lastDonationDate.split('T')[0] : '');
 
   // Compute and display eligibility info
@@ -102,6 +103,7 @@ async function saveProfile() {
   const bloodType    = document.getElementById('profile-bloodtype')?.value;
   const isAvailable  = document.getElementById('profile-available')?.value === 'true';
   const address      = document.getElementById('profile-address')?.value.trim();
+  const city         = document.getElementById('profile-city')?.value.trim();
   const lastDonation = document.getElementById('profile-lastDonation')?.value;
 
   if (!username || username.length < 3) {
@@ -113,7 +115,7 @@ async function saveProfile() {
     const res = await apiFetch('/auth/profile', {
       method: 'PUT',
       body: JSON.stringify({ firstName, lastName, username, email, bloodType,
-        isAvailable, address,
+        isAvailable, address, city,
         lastDonationDate: lastDonation || null })
     });
     if (res.success) {

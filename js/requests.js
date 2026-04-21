@@ -377,7 +377,7 @@ async function respondToDecline(id) {
 
 function showDonateSchedule(patientName, bloodType) {
   return new Promise(resolve => {
-    // Pre-fill date to today
+    // Pre-fill date to today (optional — user can clear)
     const today = new Date().toISOString().split('T')[0];
     const dateEl = document.getElementById('donate-schedule-date');
     const timeEl = document.getElementById('donate-schedule-time');
@@ -390,22 +390,15 @@ function showDonateSchedule(patientName, bloodType) {
       <div style="text-align:center;padding:4px 0 12px">
         <div style="font-size:2.2rem;font-weight:700;color:var(--red);font-family:var(--font-display);margin-bottom:6px">${bloodType}</div>
         <p style="color:var(--text2);font-size:0.88rem">You're committing to donate for <strong>${patientName}</strong>.</p>
-        <p style="font-size:0.75rem;color:var(--text3);margin-top:4px">Choose when you plan to donate below.</p>
+        <p style="font-size:0.75rem;color:var(--text3);margin-top:4px">Optionally choose when you plan to donate below.</p>
       </div>`;
 
     document.getElementById('donate-confirm-yes').onclick = () => {
-      const date = dateEl?.value;
-      const time = timeEl?.value;
-      if (!date) {
-        if (errEl) { errEl.textContent = 'Please select a donation date.'; errEl.style.display = 'block'; }
-        return;
-      }
-      if (!time) {
-        if (errEl) { errEl.textContent = 'Please select a preferred time.'; errEl.style.display = 'block'; }
-        return;
-      }
+      const date = dateEl?.value || '';
+      const time = timeEl?.value || '';
+      // date and time are optional — no validation needed
       closeModal('donate-confirm-modal');
-      resolve({ scheduledDate: date, scheduledTime: time });
+      resolve({ scheduledDate: date || undefined, scheduledTime: time || undefined });
     };
     document.getElementById('donate-confirm-no').onclick = () => {
       closeModal('donate-confirm-modal');

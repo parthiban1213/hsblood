@@ -173,7 +173,7 @@ function openRegisterForm() {
   regOtpVerified = false;
   clearRegOtpTimer();
   // Reset all fields
-  ['reg-mobile-input','reg-otp-code','reg-username-new','reg-firstName','reg-lastName',
+  ['reg-mobile-input','reg-otp-code','reg-firstName','reg-lastName',
    'reg-email-new','reg-address','reg-lastDonation'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
@@ -245,29 +245,30 @@ async function doOTPRegister() {
 
   const mobile      = (document.getElementById('reg-mobile-input')?.value   || '').trim();
   const otp         = (document.getElementById('reg-otp-code')?.value        || '').trim();
-  const username    = (document.getElementById('reg-username-new')?.value    || '').trim();
   const firstName   = (document.getElementById('reg-firstName')?.value       || '').trim();
   const lastName    = (document.getElementById('reg-lastName')?.value        || '').trim();
+  const city        = (document.getElementById('reg-city')?.value            || '').trim();
   const bloodType   =  document.getElementById('reg-bloodtype-new')?.value   || '';
   const email       = (document.getElementById('reg-email-new')?.value       || '').trim();
   const address     = (document.getElementById('reg-address')?.value         || '').trim();
   const lastDonation=  document.getElementById('reg-lastDonation')?.value    || '';
 
+  // Auto-generate username: firstName + last 4 digits of mobile
+  const username = (firstName.toLowerCase().replace(/\s+/g,'') + mobile.slice(-4));
+
   if (!mobile || !/^[6-9]\d{9}$/.test(mobile)) { _showOTPError('Please enter a valid 10-digit mobile number.'); return; }
   if (!otp || !/^\d{6}$/.test(otp))             { _showOTPError('Please send and enter the OTP to verify your mobile.'); return; }
-  if (!username || username.length < 3)          { _showOTPError('Username must be at least 3 characters.'); return; }
   if (!firstName)   { _showOTPError('First name is required.'); return; }
-  if (!lastName)    { _showOTPError('Last name is required.'); return; }
+  if (!city)        { _showOTPError('City is required.'); return; }
   if (!bloodType)   { _showOTPError('Please select your blood type.'); return; }
-  if (!email)       { _showOTPError('Email address is required.'); return; }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { _showOTPError('Please enter a valid email address.'); return; }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { _showOTPError('Please enter a valid email address.'); return; }
 
   btn.disabled = true; btn.textContent = 'Registering…';
   try {
     const res  = await fetch(API + '/auth/register-direct', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ mobile, otp, username, firstName, lastName,
-        bloodType, email, address, lastDonationDate: lastDonation || undefined })
+        bloodType, email, address, city, lastDonationDate: lastDonation || undefined })
     });
     const data = await res.json();
     if (data.success) {

@@ -1117,8 +1117,10 @@ app.post('/api/auth/register-direct', async (req, res) => {
       return res.status(409).json({ success: false, error: 'Username already taken. Please choose a different one.' });
 
     // Validate required fields
-    if (!firstName || !lastName)
-      return res.status(400).json({ success: false, error: 'First name and last name are required.' });
+    if (!firstName)
+      return res.status(400).json({ success: false, error: 'First name is required.' });
+    if (!city || !city.trim())
+      return res.status(400).json({ success: false, error: 'City is required.' });
     if (!bloodType || !['A+','A-','B+','B-','AB+','AB-','O+','O-'].includes(bloodType))
       return res.status(400).json({ success: false, error: 'Please select a valid blood type.' });
     // Email is optional — validate only when provided
