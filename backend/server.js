@@ -111,6 +111,7 @@ async function sendFcmPushForRequirement(requirement) {
       type:          'requirement',
       requirementId: _id ? _id.toString() : '',
       bloodType,
+      createdBy:     createdBy || '',
     },
     android: {
       priority: 'high',
