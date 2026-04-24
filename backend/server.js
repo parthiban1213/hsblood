@@ -142,24 +142,25 @@ async function sendFcmPushForRequirement(requirement) {
 
   // ── Path B: Per-device push (fallback for devices whose topic subscription ──
   // was lost — e.g. after app reinstall before the next app open re-subscribes)
-  // Fetch all matching donors who have a saved FCM token.
+  // Fetch all matching donors who have at least one saved FCM token.
   try {
     const matchingUsers = await User.find({
       role:        'user',
       bloodType:   bloodType,
       isAvailable: { $ne: false },
       username:    { $ne: createdBy },
-      fcmToken:    { $exists: true, $ne: '' },
-    }, 'username fcmToken').lean();
+      fcmTokens:   { $exists: true, $not: { $size: 0 } },
+    }, 'username fcmTokens').lean();
 
     if (!matchingUsers.length) {
       console.log(`[FCM] No per-device tokens found for ${bloodType} donors`);
       return;
     }
 
-    // Filter to tokens with reasonable length (> 10 chars)
+    // Flatten all tokens across all matching users, filter valid ones
     const tokens = matchingUsers
-      .map(u => u.fcmToken?.trim())
+      .flatMap(u => u.fcmTokens || [])
+      .map(t => t?.trim())
       .filter(t => t && t.length > 10);
 
     if (!tokens.length) return;
@@ -180,15 +181,17 @@ async function sendFcmPushForRequirement(requirement) {
       sentCount += response.successCount;
       failCount += response.failureCount;
 
-      // Clean up stale tokens (uninstalled apps)
+      // Clean up stale tokens (uninstalled apps) — pull from array
       response.responses.forEach((resp, idx) => {
         if (!resp.success) {
           const code = resp.error?.code || '';
           if (code === 'messaging/registration-token-not-registered' ||
               code === 'messaging/invalid-registration-token') {
             const staleToken = batch[idx];
-            User.updateOne({ fcmToken: staleToken }, { $set: { fcmToken: '' } })
-              .catch(() => {});
+            User.updateOne(
+              { fcmTokens: staleToken },
+              { $pull: { fcmTokens: staleToken } }
+            ).catch(() => {});
           }
         }
       });
@@ -226,7 +229,7 @@ async function notifyRequesterOfPledge(requirement, donorUser) {
     });
     console.log(`🔔 In-app pledge notification created for: ${requesterUsername}`);
 
-    // 2. FCM direct push to requester's device token
+    // 2. FCM direct push to ALL of requester's device tokens
     if (!firebaseAdmin) {
       console.warn('[Pledge FCM] Firebase Admin not initialised — in-app only.');
       return;
@@ -234,24 +237,26 @@ async function notifyRequesterOfPledge(requirement, donorUser) {
 
     const requesterUser = await User.findOne(
       { username: requesterUsername },
-      'fcmToken username'
+      'fcmTokens username'
     ).lean();
 
-    const fcmToken = requesterUser?.fcmToken?.trim();
+    const tokens = (requesterUser?.fcmTokens || [])
+      .map(t => t?.trim())
+      .filter(t => t && t.length > 10);
 
-    if (!fcmToken || fcmToken.length <= 10) {
+    if (!tokens.length) {
       // Most common cause: requester never opened the app after registration,
       // so their device never POSTed a token to /auth/fcm-token.
       // The in-app notification is still visible when they next open the app.
       console.warn(
-        `[Pledge FCM] Requester "${requesterUsername}" has no FCM token saved in DB. ` +
+        `[Pledge FCM] Requester "${requesterUsername}" has no FCM tokens saved in DB. ` +
         `In-app notification created. Push will work after they open the app once.`
       );
       return;
     }
 
-    await firebaseAdmin.messaging().send({
-      token: fcmToken,
+    const pledgePayload = {
+      tokens,
       notification: { title, body: message },
       data: {
         type:          'pledge',
@@ -272,8 +277,24 @@ async function notifyRequesterOfPledge(requirement, donorUser) {
         headers: { 'apns-priority': '10' },
         payload: { aps: { sound: 'default', badge: 1 } },
       },
+    };
+
+    const response = await firebaseAdmin.messaging().sendEachForMulticast(pledgePayload);
+    console.log(`🔔 FCM pledge push: ${response.successCount} sent, ${response.failureCount} failed → ${requesterUsername}`);
+
+    // Clean up stale tokens (uninstalled / reinstalled app)
+    const staleTokens = tokens.filter((_, i) => {
+      const code = response.responses[i]?.error?.code || '';
+      return code === 'messaging/registration-token-not-registered' ||
+             code === 'messaging/invalid-registration-token';
     });
-    console.log(`🔔 FCM pledge push sent to: ${requesterUsername}`);
+    if (staleTokens.length) {
+      await User.updateOne(
+        { username: requesterUsername },
+        { $pull: { fcmTokens: { $in: staleTokens } } }
+      ).catch(() => {});
+      console.warn(`[Pledge FCM] Cleared ${staleTokens.length} stale token(s) for "${requesterUsername}"`);
+    }
 
   } catch(err) {
     const code = err.code || '';
@@ -283,7 +304,7 @@ async function notifyRequesterOfPledge(requirement, donorUser) {
       console.warn(`[Pledge FCM] Stale token for "${requirement.createdBy}" — clearing from DB.`);
       await User.updateOne(
         { username: requirement.createdBy },
-        { $set: { fcmToken: '' } }
+        { $set: { fcmTokens: [] } }
       ).catch(() => {});
     } else {
       console.error(`[Pledge FCM] Error [${code}]: ${err.message}`);
@@ -668,7 +689,7 @@ const userSchema = new mongoose.Schema({
   lastDonationDate: { type: Date, default: null },
   firstName:        { type: String, default: '', trim: true },
   lastName:         { type: String, default: '', trim: true },
-  fcmToken:         { type: String, default: '' },
+  fcmTokens:        { type: [String], default: [] },
   createdAt:        { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', userSchema);
@@ -819,6 +840,30 @@ async function seedAccounts() {
     );
     if (emailFixed.modifiedCount > 0)
       console.log(`🔧 Migrated ${emailFixed.modifiedCount} user(s): email '' → null`);
+
+    // ── Migration: move legacy fcmToken (string) → fcmTokens (array) ──────────
+    // Runs once — any user who had a single fcmToken string gets it moved into
+    // the new fcmTokens array, then the old field is removed.
+    const legacyTokenUsers = await User.find({
+      fcmToken: { $exists: true, $ne: '' }
+    }).lean();
+    if (legacyTokenUsers.length > 0) {
+      for (const u of legacyTokenUsers) {
+        await User.updateOne(
+          { _id: u._id },
+          {
+            $addToSet: { fcmTokens: u.fcmToken },
+            $unset:    { fcmToken:  '' },
+          }
+        );
+      }
+      console.log(`🔧 Migrated ${legacyTokenUsers.length} user(s): fcmToken (string) → fcmTokens (array)`);
+    }
+    // Also strip the old field from users who had it set to '' (no-op if already gone)
+    await User.updateMany(
+      { fcmToken: { $exists: true } },
+      { $unset: { fcmToken: '' } }
+    );
 
     const adminUser = process.env.ADMIN_USERNAME || 'admin';
     const adminPass = process.env.ADMIN_PASSWORD || 'admin123';
@@ -1325,17 +1370,40 @@ app.post('/api/auth/availability', authenticate, async (req, res) => {
   }
 });
 
-// ── FCM TOKEN — save/update device token for targeted pushes ──
+// ── FCM TOKEN — add device token for targeted pushes (multi-device safe) ──
+// Uses $addToSet so calling this repeatedly (e.g. on every app open) is safe —
+// it will never create duplicate entries for the same token.
 app.post('/api/auth/fcm-token', authenticate, async (req, res) => {
   try {
     const { token } = req.body;
     if (!token || typeof token !== 'string' || token.trim().length < 10)
       return res.status(400).json({ success: false, error: 'Invalid FCM token.' });
 
-    await User.findByIdAndUpdate(req.user.id, { fcmToken: token.trim() });
+    await User.findByIdAndUpdate(req.user.id, {
+      $addToSet: { fcmTokens: token.trim() }
+    });
     res.json({ success: true });
   } catch(err) {
     res.status(500).json({ success: false, error: friendlyError(err, 'FCMToken') });
+  }
+});
+
+// ── FCM TOKEN — remove this device's token on logout ──────────
+// Called by the Flutter app during logout so this device stops receiving
+// direct pushes (pledge alerts) for the logged-out user.
+// Body: { token: "<fcm_token>" }
+app.delete('/api/auth/fcm-token', authenticate, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token || typeof token !== 'string' || token.trim().length < 10)
+      return res.status(400).json({ success: false, error: 'Invalid FCM token.' });
+
+    await User.findByIdAndUpdate(req.user.id, {
+      $pull: { fcmTokens: token.trim() }
+    });
+    res.json({ success: true });
+  } catch(err) {
+    res.status(500).json({ success: false, error: friendlyError(err, 'FCMTokenDelete') });
   }
 });
 
