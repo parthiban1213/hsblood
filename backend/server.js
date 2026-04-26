@@ -1969,6 +1969,23 @@ app.post('/api/requirements/:id/donate', authenticate, async (req, res) => {
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
 
+// ── CANCEL PLEDGE (donor withdraws their own pending pledge) ─
+// DELETE /api/requirements/:id/donate
+app.delete('/api/requirements/:id/donate', authenticate, async (req, res) => {
+  try {
+    const req_ = await BloodRequirement.findById(req.params.id);
+    if (!req_) return res.status(404).json({ success: false, error: 'Requirement not found.' });
+    const pledgeIndex = req_.donations.findIndex(d => d.donorUsername === req.user.username);
+    if (pledgeIndex === -1) return res.status(404).json({ success: false, error: 'No pledge found for this user.' });
+    const pledge = req_.donations[pledgeIndex];
+    if (pledge.donationStatus === 'Completed') return res.status(400).json({ success: false, error: 'Cannot cancel a completed donation.' });
+    req_.donations.splice(pledgeIndex, 1);
+    req_.updatedAt = new Date();
+    await req_.save();
+    res.json({ success: true, message: 'Pledge cancelled successfully.' });
+  } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
+});
+
 // ── NOTIFY REQUESTER OF PLEDGE ──────────────────────────────
 // POST /api/requirements/:id/notify-pledge
 // This endpoint is kept for backward compatibility only.
