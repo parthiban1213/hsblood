@@ -121,7 +121,7 @@ function openReqModal(){
   document.getElementById('req-id').value='';
   document.getElementById('req-modal-title').textContent='New Blood Requirement';
   document.getElementById('req-form').reset();
-  document.getElementById('req-urgency').value='Medium';
+  document.getElementById('req-urgency').value='Critical';
   document.getElementById('req-status').value='Open';
   document.getElementById('req-status-group').style.display='none'; // hidden on new — always Open
   document.getElementById('req-dup-warn').style.display='none';
@@ -147,7 +147,7 @@ async function editRequirement(id){
   document.getElementById('req-contactPhone').value=r.contactPhone||'';
   document.getElementById('req-bloodType').value=r.bloodType||'';
   document.getElementById('req-units').value=r.unitsRequired||1;
-  document.getElementById('req-urgency').value=r.urgency||'Medium';
+  document.getElementById('req-urgency').value=r.urgency||'Critical';
   document.getElementById('req-requiredBy').value=r.requiredBy?r.requiredBy.split('T')[0]:'';
   document.getElementById('req-status').value=r.status||'Open';
   document.getElementById('req-status-group').style.display=''; // visible when editing

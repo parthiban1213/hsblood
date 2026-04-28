@@ -1199,16 +1199,7 @@
           </select>
         </div>
         <div class="form-group"><label>Units Required *</label><input type="number" id="req-units" required min="1" placeholder="e.g. 2"/></div>
-        <div class="form-group">
-          <label>Urgency Level *</label>
-          <select id="req-urgency" required>
-            <option value="">Select urgency</option>
-            <option value="Critical">🔴 Critical — Immediate</option>
-            <option value="High">🟠 High — Within 24hrs</option>
-            <option value="Medium" selected>🟡 Medium — Within 3 days</option>
-            <option value="Low">🟢 Low — Within a week</option>
-          </select>
-        </div>
+        <input type="hidden" id="req-urgency" value="Critical"/>
         <div class="form-group"><label>Required By Date</label><input type="date" id="req-requiredBy"/></div>
         <div class="form-group" id="req-status-group">
           <label>Status</label>
