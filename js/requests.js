@@ -303,7 +303,8 @@ function renderOpenRequirements(data, userBT) {
           if (alreadyDonated) {
             footerActions = donationDone
               ? `<span class="respond-done-badge" style="background:#DCFCE7;color:#15803D;border:1.5px solid #86EFAC">✅ You donated</span>`
-              : `<span class="respond-done-badge">⏳ Scheduled</span>`;
+              : `<span class="respond-done-badge" style="background:#FEF3C7;color:#92400E;border:1.5px solid #FCD34D">⏳ Scheduled</span>
+                 <button class="btn btn-sm" onclick="cancelPledge('${r._id}')" style="background:#FFF1F2;color:#BE123C;border:1.5px solid #FECDD3;font-size:0.75rem;font-weight:600;padding:5px 11px;border-radius:8px;cursor:pointer;font-family:var(--font-ui)" title="Cancel your pledge">✕ Cancel</button>`;
           } else if (alreadyDeclined) {
             footerActions = `<span class="respond-declined-badge">❌ Declined</span>`;
           } else if (isNotEligible) {
@@ -373,6 +374,39 @@ async function respondToDecline(id) {
   } else {
     showToast(res.error || 'Could not record response.', 'error');
   }
+}
+
+async function cancelPledge(id) {
+  const confirmed = await showConfirmDialog(
+    'Cancel Your Pledge?',
+    'Are you sure you want to withdraw your pledge for this request? The requester will no longer count on you.'
+  );
+  if (!confirmed) return;
+
+  const res = await apiFetch('/requirements/' + id + '/donate', { method: 'DELETE' });
+  if (res.success) {
+    showToast('Pledge cancelled successfully.', 'success');
+    loadOpenRequirements();
+    loadMyDonationHistory();
+  } else {
+    showToast(res.error || 'Could not cancel pledge. Please try again.', 'error');
+  }
+}
+
+function showConfirmDialog(title, message) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('cancel-pledge-modal');
+    if (!modal) {
+      // Fallback: use browser confirm if modal not in DOM yet
+      resolve(confirm(message));
+      return;
+    }
+    document.getElementById('cancel-pledge-modal-title').textContent = title;
+    document.getElementById('cancel-pledge-modal-body').textContent  = message;
+    document.getElementById('cancel-pledge-confirm-yes').onclick = () => { closeModal('cancel-pledge-modal'); resolve(true); };
+    document.getElementById('cancel-pledge-confirm-no').onclick  = () => { closeModal('cancel-pledge-modal'); resolve(false); };
+    openModal('cancel-pledge-modal');
+  });
 }
 
 function showDonateSchedule(patientName, bloodType) {

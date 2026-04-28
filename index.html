@@ -1121,6 +1121,22 @@
 </div>
 
 <!-- ═══ DONATE CONFIRM MODAL ═══ -->
+<div class="modal-overlay" id="cancel-pledge-modal">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-header">
+      <h3 id="cancel-pledge-modal-title">Cancel Your Pledge?</h3>
+      <button class="modal-close" onclick="closeModal('cancel-pledge-modal')">✕</button>
+    </div>
+    <div style="padding:20px">
+      <p id="cancel-pledge-modal-body" style="color:var(--text2);font-size:0.88rem;line-height:1.55;margin:0"></p>
+    </div>
+    <div class="modal-footer" style="padding:12px 20px;display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-outline" id="cancel-pledge-confirm-no">Keep Pledge</button>
+      <button class="btn" id="cancel-pledge-confirm-yes" style="background:#FFF1F2;color:#BE123C;border:1.5px solid #FECDD3;font-weight:600">✕ Cancel Pledge</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="donate-confirm-modal">
   <div class="modal" style="max-width:440px">
     <div class="modal-header">

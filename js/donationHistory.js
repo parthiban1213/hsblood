@@ -76,6 +76,7 @@ function renderDonationHistory(data) {
             <th>Scheduled Date</th>
             <th>Donation Status</th>
             <th>Request Status</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -105,9 +106,32 @@ function renderDonationHistory(data) {
                 <span class="req-status-badge ${reqStatusCls}">${d.status}</span>
                 ${d.status === 'Fulfilled' ? ' <span style="font-size:0.75rem">🎉</span>' : ''}
               </td>
+              <td>
+                ${(isPending && d.status === 'Open') ? `<button
+                  onclick="cancelPledgeFromHistory('${d.requirementId}')"
+                  style="background:#FFF1F2;color:#BE123C;border:1.5px solid #FECDD3;font-size:0.72rem;font-weight:600;padding:4px 10px;border-radius:8px;cursor:pointer;font-family:var(--font-ui);white-space:nowrap"
+                  title="Cancel your pledge">✕ Cancel</button>` : ''}
+              </td>
             </tr>`;
           }).join('')}
         </tbody>
       </table>
     </div>`;
+}
+
+async function cancelPledgeFromHistory(requirementId) {
+  const confirmed = await showConfirmDialog(
+    'Cancel Your Pledge?',
+    'Are you sure you want to withdraw your pledge for this request? The requester will no longer count on you.'
+  );
+  if (!confirmed) return;
+
+  const res = await apiFetch('/requirements/' + requirementId + '/donate', { method: 'DELETE' });
+  if (res.success) {
+    showToast('Pledge cancelled successfully.', 'success');
+    loadMyDonationHistory();
+    loadOpenRequirements();
+  } else {
+    showToast(res.error || 'Could not cancel pledge. Please try again.', 'error');
+  }
 }
