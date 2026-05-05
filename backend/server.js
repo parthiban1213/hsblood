@@ -825,6 +825,112 @@ infoEntrySchema.pre('save', function(next){ this.updatedAt = new Date(); next();
 infoEntrySchema.index({ name: 1, phone: 1 }, { unique: true });
 const InfoEntry = mongoose.model('InfoEntry', infoEntrySchema);
 
+
+// ─── GAMIFICATION SCHEMA ─────────────────────────────────────
+// Stores XP, badges earned, and challenges progress per user.
+// Computed from BloodRequirement.donations on demand and cached here.
+
+const donorGamificationSchema = new mongoose.Schema({
+  username:     { type: String, required: true, unique: true },
+  xp:           { type: Number, default: 0 },
+  badges: [{
+    id:       { type: String, required: true },
+    earnedAt: { type: Date, default: Date.now },
+  }],
+  challenges: [{
+    id:              { type: String, required: true },
+    progressCurrent: { type: Number, default: 0 },
+    isCompleted:     { type: Boolean, default: false },
+    completedAt:     { type: Date, default: null },
+  }],
+  streakMonths:   { type: Number, default: 0 },
+  streakDeadline: { type: Date, default: null },
+  updatedAt:      { type: Date, default: Date.now },
+});
+const DonorGamification = mongoose.model('DonorGamification', donorGamificationSchema);
+
+// ── Gamification helpers ─────────────────────────────────────
+
+// XP per completed donation
+const XP_PER_DONATION = 100;
+
+// Compute donation count for a username from BloodRequirement collection
+async function getCompletedDonationCount(username) {
+  const reqs = await BloodRequirement.find({
+    'donations': { $elemMatch: { donorUsername: username, donationStatus: 'Completed' } }
+  });
+  return reqs.reduce((sum, r) => {
+    return sum + r.donations.filter(d => d.donorUsername === username && d.donationStatus === 'Completed').length;
+  }, 0);
+}
+
+// Tier name from donation count
+function tierForCount(count) {
+  if (count >= 25) return 'Legend';
+  if (count >= 15) return 'Platinum';
+  if (count >= 7)  return 'Gold';
+  if (count >= 4)  return 'Silver';
+  return 'Bronze';
+}
+
+// Determine which badges should be earned based on donation count + gamification doc
+function computeBadges(donationCount, existing = []) {
+  const earnedIds = new Set(existing.map(b => b.id));
+  const now = new Date();
+  const newBadges = [...existing];
+
+  const earn = (id) => {
+    if (!earnedIds.has(id)) {
+      newBadges.push({ id, earnedAt: now });
+      earnedIds.add(id);
+    }
+  };
+
+  if (donationCount >= 1)  earn('first_drop');
+  if (donationCount >= 3)  earn('life_saver');
+  if (donationCount >= 3)  earn('streak_3');
+  if (donationCount >= 2)  earn('on_time');
+  if (donationCount >= 15) earn('platinum');
+  if (donationCount >= 25) earn('legend');
+
+  return newBadges;
+}
+
+// Recompute and persist gamification data for a user
+async function syncGamification(username) {
+  const donationCount = await getCompletedDonationCount(username);
+  const xp = donationCount * XP_PER_DONATION;
+
+  let gam = await DonorGamification.findOne({ username });
+  if (!gam) gam = new DonorGamification({ username });
+
+  // Update XP
+  gam.xp = xp;
+
+  // Update badges
+  gam.badges = computeBadges(donationCount, gam.badges);
+
+  // Update streak (months since first donation within 90-day windows)
+  const user = await User.findOne({ username });
+  if (user && user.lastDonationDate) {
+    const daysSince = (Date.now() - new Date(user.lastDonationDate).getTime()) / (1000 * 60 * 60 * 24);
+    // Streak is active if last donation is within 90 days (donation interval)
+    if (daysSince <= 90) {
+      gam.streakMonths = Math.max(1, Math.floor(donationCount / 1));
+      // Next deadline: 90 days from last donation
+      const lastDon = new Date(user.lastDonationDate);
+      gam.streakDeadline = new Date(lastDon.getTime() + 90 * 24 * 60 * 60 * 1000);
+    } else {
+      gam.streakMonths = 0;
+      gam.streakDeadline = null;
+    }
+  }
+
+  gam.updatedAt = new Date();
+  await gam.save();
+  return { gam, donationCount };
+}
+
 // ─── SEED DEFAULT ACCOUNTS ────────────────────────────────────
 async function seedAccounts() {
   try {
@@ -2820,6 +2926,8 @@ app.post('/api/requirements/:id/donations/:donorUsername/status', authenticate, 
       if (donorUser) {
         await User.findByIdAndUpdate(donorUser._id, { lastDonationDate: completionDate, isAvailable: false });
         console.log(`✅ lastDonationDate updated and isAvailable set to false for ${donorUsername} on completion`);
+        // Sync gamification — update XP and badges for this donor
+        syncGamification(donorUsername).catch(e => console.error('[Gamification] sync error:', e.message));
       }
 
       // 3. Remove all OTHER Pending pledges by this donor from other requirements.
@@ -2856,6 +2964,194 @@ app.post('/api/requirements/:id/donations/:donorUsername/status', authenticate, 
     }
   } catch(err) { res.status(500).json({ success: false, error: friendlyError(err, 'Server') }); }
 });
+
+
+// ─── GAMIFICATION ROUTES ─────────────────────────────────────
+
+// GET /api/gamification/me
+// Returns the current user's XP, tier, badges, challenges, rank
+app.get('/api/gamification/me', authenticate, async (req, res) => {
+  try {
+    const { gam, donationCount } = await syncGamification(req.user.username);
+    const user = await User.findOne({ username: req.user.username }).lean();
+
+    // Build challenges from donation data
+    const challenges = await buildChallenges(req.user.username, donationCount);
+
+    // City rank — count users with more XP in same city
+    let cityRank = 0;
+    let cityName = user?.city || '';
+    if (cityName) {
+      const usersInCity = await User.find({ city: { $regex: new RegExp('^' + cityName + '$', 'i') }, role: 'user' }).lean();
+      const cityUsernames = usersInCity.map(u => u.username);
+      const cityGams = await DonorGamification.find({ username: { $in: cityUsernames } }).lean();
+      cityRank = cityGams.filter(g => g.xp > gam.xp).length + 1;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        xp:             gam.xp,
+        donationCount,
+        tier:           tierForCount(donationCount),
+        streakMonths:   gam.streakMonths,
+        streakDeadline: gam.streakDeadline,
+        cityRank,
+        cityName,
+        badges:         gam.badges,
+        challenges,
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/gamification/leaderboard?scope=city|state|all&limit=20
+// Returns ranked list of donors sorted by XP descending
+app.get('/api/gamification/leaderboard', authenticate, async (req, res) => {
+  try {
+    const scope = req.query.scope || 'city';
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+
+    const currentUser = await User.findOne({ username: req.user.username }).lean();
+
+    // Build user filter by scope
+    let userFilter = { role: 'user' };
+    if (scope === 'city' && currentUser?.city) {
+      userFilter.city = { $regex: new RegExp('^' + currentUser.city + '$', 'i') };
+    }
+    // state/all: no extra filter for now (extend with state field if added later)
+
+    const users = await User.find(userFilter, 'username firstName lastName bloodType city').lean();
+    const usernames = users.map(u => u.username);
+
+    // Get gamification docs — sync missing ones on the fly
+    let gams = await DonorGamification.find({ username: { $in: usernames } }).lean();
+    const gamMap = {};
+    for (const g of gams) gamMap[g.username] = g;
+
+    // Build leaderboard entries
+    const entries = await Promise.all(users.map(async (u) => {
+      if (!gamMap[u.username]) {
+        // New user — compute on demand without blocking
+        const donationCount = await getCompletedDonationCount(u.username);
+        gamMap[u.username] = { username: u.username, xp: donationCount * XP_PER_DONATION, donationCount };
+      }
+      const g = gamMap[u.username];
+      const donationCount = await getCompletedDonationCount(u.username);
+      const fullName = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
+      return {
+        username:      u.username,
+        displayName:   fullName,
+        bloodType:     u.bloodType || '',
+        city:          u.city || '',
+        tier:          tierForCount(donationCount),
+        donationCount,
+        xp:            g.xp || donationCount * XP_PER_DONATION,
+        isCurrentUser: u.username === req.user.username,
+      };
+    }));
+
+    // Sort by XP descending, assign ranks
+    entries.sort((a, b) => b.xp - a.xp || b.donationCount - a.donationCount);
+    const ranked = entries.slice(0, limit).map((e, i) => ({ ...e, rank: i + 1 }));
+
+    res.json({ success: true, data: ranked, count: ranked.length });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/gamification/award-xp — award bonus XP (pledge, streak etc.)
+app.post('/api/gamification/award-xp', authenticate, async (req, res) => {
+  try {
+    const { reason, amount } = req.body;
+    if (!amount || amount <= 0) return res.status(400).json({ success: false, error: 'Invalid amount.' });
+
+    let gam = await DonorGamification.findOne({ username: req.user.username });
+    if (!gam) gam = new DonorGamification({ username: req.user.username });
+
+    gam.xp += amount;
+    gam.updatedAt = new Date();
+    await gam.save();
+
+    res.json({ success: true, xp: gam.xp, reason });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Helper — build challenges from live donation data
+async function buildChallenges(username, donationCount) {
+  const now = new Date();
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+  // Blood type diversity — unique blood types donated to
+  const reqs = await BloodRequirement.find({
+    'donations': { $elemMatch: { donorUsername: username, donationStatus: 'Completed' } }
+  });
+  const uniqueBloodTypes = new Set(reqs.map(r => r.bloodType)).size;
+
+  const challenges = [
+    {
+      id: 'first_drop',
+      title: 'First pledge',
+      description: 'Make your very first donation pledge',
+      xpReward: 50,
+      progressCurrent: Math.min(donationCount, 1),
+      progressTotal: 1,
+      isCompleted: donationCount >= 1,
+      completedAt: donationCount >= 1 ? reqs[0]?.updatedAt || now : null,
+      deadline: null,
+    },
+    {
+      id: 'blood_type_hero',
+      title: 'Blood type hero',
+      description: 'Donate to requests from 3 different blood types',
+      xpReward: 150,
+      progressCurrent: Math.min(uniqueBloodTypes, 3),
+      progressTotal: 3,
+      isCompleted: uniqueBloodTypes >= 3,
+      completedAt: uniqueBloodTypes >= 3 ? now : null,
+      deadline: endOfMonth,
+    },
+    {
+      id: 'rapid_pledge',
+      title: 'Rapid pledge',
+      description: 'Complete a scheduled donation within the agreed date',
+      xpReward: 100,
+      progressCurrent: Math.min(donationCount, 1),
+      progressTotal: 1,
+      isCompleted: donationCount >= 1,
+      completedAt: donationCount >= 1 ? now : null,
+      deadline: null,
+    },
+    {
+      id: 'life_saver',
+      title: 'Life saver',
+      description: 'Help 3 patients by completing donations',
+      xpReward: 200,
+      progressCurrent: Math.min(donationCount, 3),
+      progressTotal: 3,
+      isCompleted: donationCount >= 3,
+      completedAt: donationCount >= 3 ? now : null,
+      deadline: null,
+    },
+    {
+      id: 'platinum_donor',
+      title: 'Platinum donor',
+      description: 'Reach 15 completed donations',
+      xpReward: 500,
+      progressCurrent: Math.min(donationCount, 15),
+      progressTotal: 15,
+      isCompleted: donationCount >= 15,
+      completedAt: donationCount >= 15 ? now : null,
+      deadline: null,
+    },
+  ];
+  return challenges;
+}
 
 // ─── GLOBAL ERROR HANDLER ────────────────────────────────────
 // Catches any error passed via next(err) from route handlers
