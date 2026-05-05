@@ -904,20 +904,18 @@ async function syncGamification(username) {
   let gam = await DonorGamification.findOne({ username });
   if (!gam) gam = new DonorGamification({ username });
 
-  // Update XP
+  // ── XP ──────────────────────────────────────────────────────
   gam.xp = xp;
 
-  // Update badges
+  // ── Badges ──────────────────────────────────────────────────
   gam.badges = computeBadges(donationCount, gam.badges);
 
-  // Update streak (months since first donation within 90-day windows)
+  // ── Streak ──────────────────────────────────────────────────
   const user = await User.findOne({ username });
   if (user && user.lastDonationDate) {
     const daysSince = (Date.now() - new Date(user.lastDonationDate).getTime()) / (1000 * 60 * 60 * 24);
-    // Streak is active if last donation is within 90 days (donation interval)
     if (daysSince <= 90) {
-      gam.streakMonths = Math.max(1, Math.floor(donationCount / 1));
-      // Next deadline: 90 days from last donation
+      gam.streakMonths = Math.max(1, donationCount);
       const lastDon = new Date(user.lastDonationDate);
       gam.streakDeadline = new Date(lastDon.getTime() + 90 * 24 * 60 * 60 * 1000);
     } else {
@@ -925,6 +923,35 @@ async function syncGamification(username) {
       gam.streakDeadline = null;
     }
   }
+
+  // ── Challenges — compute live progress, preserve original completedAt ──────
+  // Build a map of previously stored challenge state so we keep the first
+  // completedAt timestamp and don't overwrite it on subsequent syncs.
+  const existingChallengeMap = {};
+  for (const ch of (gam.challenges || [])) {
+    existingChallengeMap[ch.id] = ch;
+  }
+
+  const freshChallenges = await buildChallenges(username, donationCount);
+  const now = new Date();
+
+  gam.challenges = freshChallenges.map(ch => {
+    const existing = existingChallengeMap[ch.id];
+    const wasCompleted = existing?.isCompleted === true;
+    const isNowCompleted = ch.isCompleted;
+
+    return {
+      id:              ch.id,
+      progressCurrent: ch.progressCurrent,
+      isCompleted:     isNowCompleted,
+      // Preserve the original completedAt — never overwrite once set
+      completedAt:     wasCompleted
+                         ? existing.completedAt         // keep original timestamp
+                         : isNowCompleted
+                           ? now                        // first time completed → record now
+                           : null,
+    };
+  });
 
   gam.updatedAt = new Date();
   await gam.save();
@@ -2975,8 +3002,18 @@ app.get('/api/gamification/me', authenticate, async (req, res) => {
     const { gam, donationCount } = await syncGamification(req.user.username);
     const user = await User.findOne({ username: req.user.username }).lean();
 
-    // Build challenges from donation data
-    const challenges = await buildChallenges(req.user.username, donationCount);
+    // Merge DB-persisted completedAt with live progress from gam.challenges
+    // syncGamification already computed and saved them — just enrich with titles
+    const freshChallenges = await buildChallenges(req.user.username, donationCount);
+    const dbChallengeMap = {};
+    for (const ch of (gam.challenges || [])) dbChallengeMap[ch.id] = ch;
+
+    const challenges = freshChallenges.map(ch => ({
+      ...ch,
+      // Use the DB-persisted completedAt (preserves original timestamp)
+      completedAt: dbChallengeMap[ch.id]?.completedAt || ch.completedAt,
+      isCompleted: dbChallengeMap[ch.id]?.isCompleted ?? ch.isCompleted,
+    }));
 
     // City rank — count users with more XP in same city
     let cityRank = 0;
