@@ -20,14 +20,14 @@ async function loadRewards() {
 // ── API calls ──────────────────────────────────────────────────
 async function fetchGamificationMe() {
   try {
-    const res = await apiFetch('/api/gamification/me');
+    const res = await apiFetch('/gamification/me');
     if (res && res.success) _gamData = res.data;
   } catch (e) { /* handled below */ }
 }
 
 async function fetchLeaderboard(scope) {
   try {
-    const res = await apiFetch(`/api/gamification/leaderboard?scope=${scope}&limit=25`);
+    const res = await apiFetch(`/gamification/leaderboard?scope=${scope}&limit=25`);
     if (res && res.success) _leaderboard = res.data || [];
   } catch (e) { _leaderboard = []; }
 }
