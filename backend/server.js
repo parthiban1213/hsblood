@@ -843,8 +843,6 @@ const donorGamificationSchema = new mongoose.Schema({
     isCompleted:     { type: Boolean, default: false },
     completedAt:     { type: Date, default: null },
   }],
-  streakMonths:   { type: Number, default: 0 },
-  streakDeadline: { type: Date, default: null },
   updatedAt:      { type: Date, default: Date.now },
 });
 const DonorGamification = mongoose.model('DonorGamification', donorGamificationSchema);
@@ -898,7 +896,6 @@ function computeBadges(donationCount, existing = []) {
 
   if (donationCount >= 1)  earn('first_drop');
   if (donationCount >= 3)  earn('life_saver');
-  if (donationCount >= 3)  earn('streak_3');
   if (donationCount >= 2)  earn('on_time');
   if (donationCount >= 15) earn('platinum');
   if (donationCount >= 25) earn('legend');
@@ -941,19 +938,6 @@ async function syncGamification(username) {
   // ── Badges ──────────────────────────────────────────────────
   gam.badges = computeBadges(donationCount, gam.badges);
 
-  // ── Streak ──────────────────────────────────────────────────
-  const user = await User.findOne({ username });
-  if (user && user.lastDonationDate) {
-    const daysSince = (Date.now() - new Date(user.lastDonationDate).getTime()) / (1000 * 60 * 60 * 24);
-    if (daysSince <= 90) {
-      gam.streakMonths = Math.max(1, donationCount);
-      const lastDon = new Date(user.lastDonationDate);
-      gam.streakDeadline = new Date(lastDon.getTime() + 90 * 24 * 60 * 60 * 1000);
-    } else {
-      gam.streakMonths = 0;
-      gam.streakDeadline = null;
-    }
-  }
 
   // ── Challenges — persist progress and preserve original completedAt ────────
   // Reuse freshChallengesForXp already computed above (no extra DB query).
@@ -3055,8 +3039,6 @@ app.get('/api/gamification/me', authenticate, async (req, res) => {
         xp:             gam.xp,
         donationCount,
         tier:           tierForCount(donationCount),
-        streakMonths:   gam.streakMonths,
-        streakDeadline: gam.streakDeadline,
         cityRank,
         cityName,
         badges:         gam.badges,
