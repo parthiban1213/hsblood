@@ -538,6 +538,9 @@
       <button class="nav-btn" id="nav-donation-history" onclick="showPage('donation-history',this)" title="Donation History">
         <span class="icon">📖</span><span class="nav-text"> Donation History</span>
       </button>
+      <button class="nav-btn" id="nav-rewards" onclick="showPage('rewards',this)" title="Rewards">
+        <span class="icon">🏆</span><span class="nav-text"> Rewards</span>
+      </button>
       <span class="nav-label" id="nav-label-account"><span class="nav-label-text">Account</span></span>
       <button class="nav-btn" id="nav-security" onclick="showPage('security',this)" title="Security">
         <span class="icon">🔐</span><span class="nav-text"> Security</span>
@@ -1101,6 +1104,15 @@
       </div>
       <div id="donation-history-stats" class="dash-stats" style="margin-bottom:18px"></div>
       <div id="donation-history-view"><div class="spinner"></div></div>
+    </div>
+
+    <!-- ══ REWARDS / GAMIFICATION PAGE ══ -->
+    <div id="page-rewards" class="page" style="display:none;padding:0">
+      <div class="page-header" style="padding:20px 20px 14px">
+        <h2 class="page-title">🏆 Rewards</h2>
+        <p class="page-sub">Your XP, achievements, and leaderboard ranking</p>
+      </div>
+      <div id="rewards-root"></div>
     </div>
 
   </main>
@@ -1924,6 +1936,7 @@
 <script src="js/requirements.js"></script>
 <script src="js/requests.js"></script>
 <script src="js/donationHistory.js"></script>
+<script src="js/rewards.js"></script>
 <script src="js/bulk.js"></script>
 <script src="js/duplicates.js"></script>
 <script src="js/export.js"></script>

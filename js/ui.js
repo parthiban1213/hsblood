@@ -65,9 +65,11 @@ function applyRoleUI(){
   const myActLabel = document.getElementById('nav-label-myactivity');
   const myReqNav   = document.getElementById('nav-my-requests');
   const donHistNav = document.getElementById('nav-donation-history');
+  const rewardsNav = document.getElementById('nav-rewards');
   if(myActLabel) myActLabel.style.display = '';
   if(myReqNav)   myReqNav.style.display   = '';
   if(donHistNav) donHistNav.style.display = isAdminRole ? 'none' : '';
+  if(rewardsNav) rewardsNav.style.display = isAdminRole ? 'none' : '';
 
   // ── Bulk Upload button (donors page) — admin only ────────────
   const bulkBtn = document.getElementById('bulk-upload-btn');
@@ -99,6 +101,7 @@ function showPage(page, btn){
   if(page==='my-requests')      loadMyRequests();
   if(page==='respond')          loadOpenRequirements();
   if(page==='donation-history') loadMyDonationHistory();
+  if(page==='rewards')          loadRewards();
   if(page==='security') {
     const sucEl = document.getElementById('cp-success');
     const errEl = document.getElementById('cp-error');
