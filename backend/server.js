@@ -854,6 +854,16 @@ const DonorGamification = mongoose.model('DonorGamification', donorGamificationS
 // XP per completed donation
 const XP_PER_DONATION = 100;
 
+// ── Challenge XP rewards — single source of truth ────────────
+const CHALLENGE_XP = {
+  first_drop:           50,
+  blood_type_hero:     150,
+  rapid_pledge:        100,
+  life_saver:          200,
+  platinum_donor:      500,
+};
+
+
 // Compute donation count for a username from BloodRequirement collection
 async function getCompletedDonationCount(username) {
   const reqs = await BloodRequirement.find({
@@ -905,7 +915,28 @@ async function syncGamification(username) {
   if (!gam) gam = new DonorGamification({ username });
 
   // ── XP ──────────────────────────────────────────────────────
-  gam.xp = xp;
+  // Base XP from donations + bonus XP from completed challenges.
+  // We recompute challenges first so we can sum their rewards accurately.
+  // Previously earned challenge XP is preserved even if donations are reverted.
+  const freshChallengesForXp = await buildChallenges(username, donationCount);
+
+  // Build map of previously stored challenges to preserve completedAt
+  const existingChallengeMapForXp = {};
+  for (const ch of (gam.challenges || [])) {
+    existingChallengeMapForXp[ch.id] = ch;
+  }
+
+  // Determine which challenges are completed (either newly or previously)
+  let bonusXp = 0;
+  for (const ch of freshChallengesForXp) {
+    const wasCompleted = existingChallengeMapForXp[ch.id]?.isCompleted === true;
+    const isNowCompleted = ch.isCompleted;
+    if (wasCompleted || isNowCompleted) {
+      bonusXp += CHALLENGE_XP[ch.id] || 0;
+    }
+  }
+
+  gam.xp = xp + bonusXp;
 
   // ── Badges ──────────────────────────────────────────────────
   gam.badges = computeBadges(donationCount, gam.badges);
@@ -924,19 +955,12 @@ async function syncGamification(username) {
     }
   }
 
-  // ── Challenges — compute live progress, preserve original completedAt ──────
-  // Build a map of previously stored challenge state so we keep the first
-  // completedAt timestamp and don't overwrite it on subsequent syncs.
-  const existingChallengeMap = {};
-  for (const ch of (gam.challenges || [])) {
-    existingChallengeMap[ch.id] = ch;
-  }
-
-  const freshChallenges = await buildChallenges(username, donationCount);
+  // ── Challenges — persist progress and preserve original completedAt ────────
+  // Reuse freshChallengesForXp already computed above (no extra DB query).
   const now = new Date();
 
-  gam.challenges = freshChallenges.map(ch => {
-    const existing = existingChallengeMap[ch.id];
+  gam.challenges = freshChallengesForXp.map(ch => {
+    const existing = existingChallengeMapForXp[ch.id];
     const wasCompleted = existing?.isCompleted === true;
     const isNowCompleted = ch.isCompleted;
 
@@ -3073,7 +3097,7 @@ app.get('/api/gamification/leaderboard', authenticate, async (req, res) => {
       if (!gamMap[u.username]) {
         // New user — compute on demand without blocking
         const donationCount = await getCompletedDonationCount(u.username);
-        gamMap[u.username] = { username: u.username, xp: donationCount * XP_PER_DONATION, donationCount };
+        gamMap[u.username] = { username: u.username, xp: donationCount * XP_PER_DONATION, donationCount }; // bonus XP loaded from DB below
       }
       const g = gamMap[u.username];
       const donationCount = await getCompletedDonationCount(u.username);
@@ -3085,7 +3109,7 @@ app.get('/api/gamification/leaderboard', authenticate, async (req, res) => {
         city:          u.city || '',
         tier:          tierForCount(donationCount),
         donationCount,
-        xp:            g.xp || donationCount * XP_PER_DONATION,
+        xp:            g.xp !== undefined ? g.xp : donationCount * XP_PER_DONATION,
         isCurrentUser: u.username === req.user.username,
       };
     }));
