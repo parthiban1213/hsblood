@@ -2822,6 +2822,7 @@ app.delete('/api/notifications/:id', authenticate, async (req, res) => {
 app.post('/api/support/send', async (req, res) => {
   try {
     const { fromName, fromEmail, subject, message, attachments } = req.body;
+    console.log('Attachments received:', JSON.stringify(attachments));
 
     // ── Validate ──────────────────────────────────────────
     if (!fromName || !fromEmail || !subject || !message) {
