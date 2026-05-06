@@ -5,29 +5,30 @@ const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
 require('dotenv').config();
 
-// ── Nodemailer (support contact form) ────────────────────────
-// Uses Gmail + App Password. Set these env vars on Render:
-//   MAIL_USER  — the Gmail address that sends the email
-//   MAIL_PASS  — Gmail App Password (not your normal password)
-//               Generate at: https://myaccount.google.com/apppasswords
-//   MAIL_TO    — inbox that receives support messages (defaults to ADMIN_EMAIL)
-let mailTransporter = null;
-const MAIL_USER = process.env.MAIL_USER || '';
-const MAIL_PASS = process.env.MAIL_PASS || '';
-const MAIL_TO   = process.env.MAIL_TO   || process.env.ADMIN_EMAIL || '';
-if (MAIL_USER && MAIL_PASS) {
+// ── Resend (support contact form) ────────────────────────────
+// Uses Resend HTTP API — works on Render free tier.
+// SMTP (Nodemailer/Gmail) was replaced because Render blocks outbound
+// SMTP connections, causing the support form to hang indefinitely.
+//
+// Set these env vars on Render:
+//   RESEND_API_KEY — API key from https://resend.com (free: 3,000 emails/month)
+//   MAIL_TO        — inbox that receives support messages (e.g. support@yourdomain.com)
+//   MAIL_FROM      — verified sender address in Resend (defaults to onboarding@resend.dev for testing)
+let resendClient = null;
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const MAIL_TO        = process.env.MAIL_TO || process.env.ADMIN_EMAIL || '';
+const MAIL_FROM      = process.env.MAIL_FROM || 'onboarding@resend.dev';
+
+if (RESEND_API_KEY) {
   try {
-    const nodemailer = require('nodemailer');
-    mailTransporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: MAIL_USER, pass: MAIL_PASS },
-    });
-    console.log('✅ Nodemailer (Gmail) enabled — support emails active');
+    const { Resend } = require('resend');
+    resendClient = new Resend(RESEND_API_KEY);
+    console.log('✅ Resend email enabled — support emails active');
   } catch(e) {
-    console.warn('⚠️  nodemailer package not found — run: npm install nodemailer');
+    console.warn('⚠️  resend package not found — run: npm install resend');
   }
 } else {
-  console.log('ℹ️  MAIL_USER / MAIL_PASS not set — support email disabled');
+  console.log('ℹ️  RESEND_API_KEY not set — support email disabled');
 }
 
 // Twilio SMS (optional — only active if TWILIO_* env vars are set)
@@ -2835,35 +2836,31 @@ app.post('/api/support/send', async (req, res) => {
     }
 
     // ── Check mail is configured ──────────────────────────
-    if (!mailTransporter) {
-      console.warn('Support email attempted but MAIL_USER/MAIL_PASS not configured.');
+    if (!resendClient) {
+      console.warn('Support email attempted but RESEND_API_KEY not configured.');
       return res.status(503).json({
         success: false,
         error: 'Mail service is not configured on the server.',
       });
     }
 
-    const toAddress = MAIL_TO || MAIL_USER; // fallback: send to sender account
+    if (!MAIL_TO) {
+      return res.status(503).json({
+        success: false,
+        error: 'Support inbox (MAIL_TO) is not configured on the server.',
+      });
+    }
+
     const attachmentNote = attachments && attachments.trim()
-      ? `\n\n📎 Attachments mentioned: ${attachments}\n(Files cannot be sent through the app — the user may follow up separately.)`
+      ? `<div style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e;">📎 <strong>Attachments mentioned:</strong> ${attachments}</div>`
       : '';
 
     // ── Send ──────────────────────────────────────────────
-    await mailTransporter.sendMail({
-      from:    `"HSBlood Support" <${MAIL_USER}>`,
-      replyTo: `"${fromName}" <${fromEmail}>`,
-      to:      toAddress,
+    await resendClient.emails.send({
+      from:    `HSBlood Support <${MAIL_FROM}>`,
+      replyTo: `${fromName} <${fromEmail}>`,
+      to:      [MAIL_TO],
       subject: `[HSBlood Support] ${subject}`,
-      text: [
-        `From: ${fromName} <${fromEmail}>`,
-        `Subject: ${subject}`,
-        '',
-        message,
-        attachmentNote,
-        '',
-        '---',
-        'Sent via HSBlood Mobile App',
-      ].join('\n'),
       html: `
         <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
           <div style="background:#DC2626;padding:20px 24px;border-radius:12px 12px 0 0;">
@@ -2882,7 +2879,7 @@ app.post('/api/support/send', async (req, res) => {
             </table>
             <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;">
             <div style="color:#374151;line-height:1.6;white-space:pre-wrap;">${message}</div>
-            ${attachments ? `<div style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e;">📎 <strong>Attachments mentioned:</strong> ${attachments}</div>` : ''}
+            ${attachmentNote}
             <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
             <p style="color:#9ca3af;font-size:12px;margin:0;">
               Sent via HSBlood Mobile App · Reply to this email to respond to ${fromName}
