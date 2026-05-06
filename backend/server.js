@@ -2856,7 +2856,7 @@ app.post('/api/support/send', async (req, res) => {
       : '';
 
     // ── Send ──────────────────────────────────────────────
-    await resendClient.emails.send({
+    const resendResult = await resendClient.emails.send({
       from:    `HSBlood Support <${MAIL_FROM}>`,
       replyTo: `${fromName} <${fromEmail}>`,
       to:      [MAIL_TO],
@@ -2889,6 +2889,7 @@ app.post('/api/support/send', async (req, res) => {
       `,
     });
 
+    console.log('Resend result:', JSON.stringify(resendResult));
     console.log(`📧 Support email sent — from: ${fromEmail}, subject: "${subject}"`);
     res.json({ success: true });
 
