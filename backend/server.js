@@ -2851,9 +2851,26 @@ app.post('/api/support/send', async (req, res) => {
       });
     }
 
-    const attachmentNote = attachments && attachments.trim()
-      ? `<div style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e;">📎 <strong>Attachments mentioned:</strong> ${attachments}</div>`
-      : '';
+    // Parse attachments — JSON array of {name, url} uploaded to Cloudinary
+    let attachmentNote = '';
+    if (attachments && attachments.trim()) {
+      try {
+        const files = JSON.parse(attachments);
+        if (Array.isArray(files) && files.length > 0) {
+          attachmentNote = `
+            <div style="margin-top:16px;padding:14px;background:#f0f9ff;border-radius:8px;border:1px solid #bae6fd;">
+              <p style="margin:0 0 10px;color:#0369a1;font-weight:bold;font-size:13px;">📎 Attachments (${files.length})</p>
+              ${files.map(f => `
+                <div style="margin:6px 0;">
+                  <a href="${f.url}" style="color:#0369a1;font-size:13px;word-break:break-all;">${f.name}</a>
+                </div>`).join('')}
+            </div>`;
+        }
+      } catch (_) {
+        // Plain text fallback (no Cloudinary URLs — just show names)
+        attachmentNote = `<div style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;color:#92400e;">📎 <strong>Attachments mentioned:</strong> ${attachments}</div>`;
+      }
+    }
 
     // ── Send ──────────────────────────────────────────────
     const resendResult = await resendClient.emails.send({
