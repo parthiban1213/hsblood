@@ -460,6 +460,21 @@ async function sendContactSupport() {
   btn.textContent = 'Sending…';
 
   try {
+    // Upload file to Cloudinary first (if any), then send URLs to backend
+    let attachments = '';
+    if (file) {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+      const uploadRes = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`,
+        { method: 'POST', body: formData }
+      );
+      if (!uploadRes.ok) throw new Error('File upload failed. Please try again.');
+      const uploadData = await uploadRes.json();
+      attachments = JSON.stringify([{ name: file.name, url: uploadData.secure_url }]);
+    }
+
     // Send as JSON — server endpoint is /support/send (API already includes /api prefix)
     const res = await fetch(API + '/support/send', {
       method: 'POST',
@@ -469,7 +484,7 @@ async function sendContactSupport() {
         fromEmail:   email,
         subject,
         message,
-        attachments: file ? file.name : '',
+        attachments,
       }),
     });
 

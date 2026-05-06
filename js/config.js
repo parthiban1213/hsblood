@@ -6,7 +6,13 @@
 // ── API URL auto-detection ─────────────────────────────────────
 // Set RENDER_URL to your Render deployment URL (no trailing slash).
 // Leave blank to always use localhost (local dev only).
-const RENDER_URL = 'https://hsblood.onrender.com'; // e.g. 'https://hsblood.onrender.com'
+const RENDER_URL = 'https://hsblood.onrender.com';
+
+// ── Cloudinary (support form file uploads) ─────────────────────
+// Same credentials as the mobile app.
+// Sign up free at cloudinary.com — no card required.
+const CLOUDINARY_CLOUD_NAME    = 'dywlppbqa';    // ← replace
+const CLOUDINARY_UPLOAD_PRESET = 'hsblood'; // ← replace // 
 
 const API = (() => {
   const h = window.location.hostname;
