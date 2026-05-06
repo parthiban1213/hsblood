@@ -12,7 +12,7 @@ const RENDER_URL = 'https://hsblood.onrender.com';
 // Same credentials as the mobile app.
 // Sign up free at cloudinary.com — no card required.
 const CLOUDINARY_CLOUD_NAME    = 'dywlppbqa';    // ← replace
-const CLOUDINARY_UPLOAD_PRESET = 'hsblood'; // ← replace // 
+const CLOUDINARY_UPLOAD_PRESET = 'tnblood'; // ← replace // 
 
 const API = (() => {
   const h = window.location.hostname;
